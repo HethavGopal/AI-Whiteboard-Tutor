@@ -13,6 +13,7 @@ Hackathon MVP. The typed-problem → K2 lesson → tldraw playback path is wired
 ```bash
 npm run dev        # Next.js dev server (App Router)
 npm run build      # Production build
+npm run start      # Production server (after build)
 npm run lint       # ESLint (flat config in eslint.config.mjs)
 ```
 
@@ -67,6 +68,7 @@ No SSE or streaming yet; `/api/lesson` returns the full plan in one JSON payload
 | [components/whiteboard-tutor-shell.tsx](components/whiteboard-tutor-shell.tsx) | Three-pane UI: input panel, whiteboard, step/transcript panel. Calls `/api/lesson`. |
 | [app/api/lesson/route.ts](app/api/lesson/route.ts) | Single POST handler. Validates body, calls `generateLessonWithK2`, returns JSON. Not streaming. |
 | [app/page.tsx](app/page.tsx), [app/layout.tsx](app/layout.tsx) | Minimal App Router shell. |
+| `app/api/question/`, `app/api/correct/`, `app/api/analyze/` | Empty stub directories — no `route.ts` exists yet. Do not reference them until implemented. |
 
 ### DrawAction model
 
