@@ -67,7 +67,7 @@ User interrupts via PTT
 | `lib/player.ts` | Step loop orchestrator |
 | `lib/tldrawBridge.ts` | `DrawAction` → tldraw programmatic API |
 | `app/api/lesson/route.ts` | Vision + plan generation SSE endpoint |
-| `lib/llm/k2think.ts` | K2 Think client; must strip `<think>…</think>` tags before parsing |
+| `lib/llm/k2think.ts` | K2 Think client; must strip `<redacted_thinking>…</think>` tags before parsing |
 
 ### API Routes
 
