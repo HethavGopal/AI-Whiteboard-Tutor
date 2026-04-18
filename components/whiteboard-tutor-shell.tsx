@@ -187,7 +187,7 @@ export function WhiteboardTutorShell() {
             <textarea
               value={problemInput}
               onChange={(event) => setProblemInput(event.target.value)}
-              placeholder="Type a math problem or question..."
+              placeholder="Type a math problem... e.g. 2x + 3 = 11 or d/dx of x^2 + 3x"
               className="mt-2 min-h-40 w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white outline-none transition placeholder:text-zinc-500 focus:border-sky-400"
             />
 

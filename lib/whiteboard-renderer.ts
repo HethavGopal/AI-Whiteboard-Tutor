@@ -4,12 +4,28 @@ import {
   type Editor,
   type TLShapeId,
 } from "@tldraw/editor";
+import { getIndices, type IndexKey } from "@tldraw/utils";
 
 import type { DrawAction, LessonPlan } from "@/lib/tutor-core";
+import {
+  parsePolynomial,
+  evaluatePolynomial,
+  derivativePolynomial,
+} from "@/lib/poly-math";
 
 type ShapeBatch = Parameters<Editor["createShapes"]>[0];
 type ShapePartial = NonNullable<ShapeBatch>[number];
 export type LabelMap = Record<string, TLShapeId[]>;
+
+type AxesTransform = {
+  toScreenX: (mx: number) => number;
+  toScreenY: (my: number) => number;
+  xMin: number;
+  xMax: number;
+  yMin: number;
+  yMax: number;
+  box: { x: number; y: number; w: number; h: number };
+};
 
 export type WhiteboardRenderResult = {
   labelMap: LabelMap;
@@ -27,6 +43,7 @@ type RenderContext = {
   labelMap: LabelMap;
   renderedActionIds: string[];
   warnings: string[];
+  axesMap: Record<string, AxesTransform>;
 };
 
 export const whiteboardPlaybackConfig = {
@@ -104,6 +121,7 @@ function createRenderContext(editor: Editor): RenderContext {
     labelMap: {},
     renderedActionIds: [],
     warnings: [],
+    axesMap: {},
   };
 }
 
@@ -373,6 +391,410 @@ function applyEraseAction(
   removeLabelTargets(context.labelMap, action.targetLabels);
 }
 
+function createPolylineShape(
+  semanticLabel: string,
+  actionId: string,
+  screenPoints: { x: number; y: number }[],
+  color: string,
+): ShapePartial {
+  const origin = screenPoints[0];
+  const indices = getIndices(screenPoints.length);
+  const points: Record<string, { id: string; index: IndexKey; x: number; y: number }> = {};
+  for (let i = 0; i < screenPoints.length; i++) {
+    const key = indices[i];
+    points[key] = {
+      id: key,
+      index: key,
+      x: screenPoints[i].x - origin.x,
+      y: screenPoints[i].y - origin.y,
+    };
+  }
+  return {
+    id: createShapeId(semanticLabel),
+    type: "line",
+    x: origin.x,
+    y: origin.y,
+    meta: { semanticLabel, actionId },
+    props: {
+      color: color as never,
+      dash: "draw",
+      size: "m",
+      spline: "line",
+      scale: 1,
+      points,
+    },
+  };
+}
+
+function applyAxesAction(
+  context: RenderContext,
+  action: Extract<DrawAction, { type: "axes" }>,
+) {
+  const { semanticLabel, x, y, width, height, xMin, xMax, yMin, yMax } = action;
+
+  const toScreenX = (mx: number) => x + ((mx - xMin) / (xMax - xMin)) * width;
+  const toScreenY = (my: number) => y + height - ((my - yMin) / (yMax - yMin)) * height;
+
+  context.axesMap[semanticLabel] = {
+    toScreenX,
+    toScreenY,
+    xMin,
+    xMax,
+    yMin,
+    yMax,
+    box: { x, y, w: width, h: height },
+  };
+
+  const shapes: ShapePartial[] = [];
+  const allShapeIds: TLShapeId[] = [];
+
+  function addShape(shape: ShapePartial) {
+    shapes.push(shape);
+    allShapeIds.push(shape.id as TLShapeId);
+  }
+
+  const xAxisY = yMin <= 0 && 0 <= yMax ? toScreenY(0) : yMin > 0 ? y + height : y;
+  const yAxisX = xMin <= 0 && 0 <= xMax ? toScreenX(0) : xMin > 0 ? x : x + width;
+
+  addShape({
+    id: createShapeId(`${semanticLabel}__xaxis`),
+    type: "line",
+    x,
+    y: xAxisY,
+    meta: { semanticLabel, actionId: action.id },
+    props: {
+      color: "black" as never,
+      dash: "solid",
+      size: "s",
+      spline: "line",
+      scale: 1,
+      points: {
+        a1: { id: "a1", index: "a1" as never, x: 0, y: 0 },
+        a2: { id: "a2", index: "a2" as never, x: width, y: 0 },
+      },
+    },
+  });
+
+  addShape({
+    id: createShapeId(`${semanticLabel}__yaxis`),
+    type: "line",
+    x: yAxisX,
+    y,
+    meta: { semanticLabel, actionId: action.id },
+    props: {
+      color: "black" as never,
+      dash: "solid",
+      size: "s",
+      spline: "line",
+      scale: 1,
+      points: {
+        a1: { id: "a1", index: "a1" as never, x: 0, y: 0 },
+        a2: { id: "a2", index: "a2" as never, x: 0, y: height },
+      },
+    },
+  });
+
+  const tickLen = 4;
+  const xTickStep = Math.max(1, Math.round((xMax - xMin) / 8));
+  const yTickStep = Math.max(1, Math.round((yMax - yMin) / 8));
+
+  let xTickVal = Math.ceil(xMin / xTickStep) * xTickStep;
+  let xTickCount = 0;
+  while (xTickVal <= xMax) {
+    if (Math.abs(xTickVal) > 0.0001) {
+      const sx = toScreenX(xTickVal);
+      addShape({
+        id: createShapeId(`${semanticLabel}__xtick_${xTickCount}`),
+        type: "line",
+        x: sx,
+        y: xAxisY - tickLen,
+        meta: { semanticLabel, actionId: action.id },
+        props: {
+          color: "black" as never,
+          dash: "solid",
+          size: "s",
+          spline: "line",
+          scale: 1,
+          points: {
+            a1: { id: "a1", index: "a1" as never, x: 0, y: 0 },
+            a2: { id: "a2", index: "a2" as never, x: 0, y: tickLen * 2 },
+          },
+        },
+      });
+      addShape({
+        id: createShapeId(`${semanticLabel}__xtlabel_${xTickCount}`),
+        type: "text",
+        x: sx - 6,
+        y: xAxisY + tickLen + 2,
+        meta: { semanticLabel, actionId: action.id },
+        props: {
+          color: "black",
+          scale: 0.5,
+          richText: toRichText(String(xTickVal)),
+          textAlign: "middle",
+        },
+      });
+    }
+    xTickVal += xTickStep;
+    xTickCount++;
+  }
+
+  let yTickVal = Math.ceil(yMin / yTickStep) * yTickStep;
+  let yTickCount = 0;
+  while (yTickVal <= yMax) {
+    if (Math.abs(yTickVal) > 0.0001) {
+      const sy = toScreenY(yTickVal);
+      addShape({
+        id: createShapeId(`${semanticLabel}__ytick_${yTickCount}`),
+        type: "line",
+        x: yAxisX - tickLen,
+        y: sy,
+        meta: { semanticLabel, actionId: action.id },
+        props: {
+          color: "black" as never,
+          dash: "solid",
+          size: "s",
+          spline: "line",
+          scale: 1,
+          points: {
+            a1: { id: "a1", index: "a1" as never, x: 0, y: 0 },
+            a2: { id: "a2", index: "a2" as never, x: tickLen * 2, y: 0 },
+          },
+        },
+      });
+      addShape({
+        id: createShapeId(`${semanticLabel}__ytlabel_${yTickCount}`),
+        type: "text",
+        x: yAxisX - tickLen - 22,
+        y: sy - 7,
+        meta: { semanticLabel, actionId: action.id },
+        props: {
+          color: "black",
+          scale: 0.5,
+          richText: toRichText(String(yTickVal)),
+          textAlign: "end",
+        },
+      });
+    }
+    yTickVal += yTickStep;
+    yTickCount++;
+  }
+
+  if (action.xLabel) {
+    addShape({
+      id: createShapeId(`${semanticLabel}__xlabel`),
+      type: "text",
+      x: x + width - 10,
+      y: xAxisY + tickLen + 2,
+      meta: { semanticLabel, actionId: action.id },
+      props: {
+        color: "black",
+        scale: 0.6,
+        richText: toRichText(action.xLabel),
+        textAlign: "start",
+      },
+    });
+  }
+
+  if (action.yLabel) {
+    addShape({
+      id: createShapeId(`${semanticLabel}__ylabel`),
+      type: "text",
+      x: yAxisX + 5,
+      y: y + 5,
+      meta: { semanticLabel, actionId: action.id },
+      props: {
+        color: "black",
+        scale: 0.6,
+        richText: toRichText(action.yLabel),
+        textAlign: "start",
+      },
+    });
+  }
+
+  context.editor.createShapes(shapes);
+  appendLabel(context.labelMap, semanticLabel, allShapeIds);
+}
+
+function applyPlotFunctionAction(
+  context: RenderContext,
+  action: Extract<DrawAction, { type: "plot_function" }>,
+) {
+  const transform = context.axesMap[action.axesLabel];
+  if (!transform) {
+    context.warnings.push(
+      `plot_function "${action.semanticLabel}": axes "${action.axesLabel}" not found.`,
+    );
+    return;
+  }
+
+  let poly;
+  try {
+    poly = parsePolynomial(action.expression);
+  } catch (e) {
+    context.warnings.push(
+      `plot_function "${action.semanticLabel}": ${e instanceof Error ? e.message : String(e)}`,
+    );
+    return;
+  }
+
+  const xMin = action.xMin ?? transform.xMin;
+  const xMax = action.xMax ?? transform.xMax;
+  const samples = action.samples ?? 80;
+
+  const screenPoints: { x: number; y: number }[] = [];
+  for (let i = 0; i < samples; i++) {
+    const mx = xMin + (i / (samples - 1)) * (xMax - xMin);
+    screenPoints.push({
+      x: transform.toScreenX(mx),
+      y: transform.toScreenY(evaluatePolynomial(poly, mx)),
+    });
+  }
+
+  const shape = createPolylineShape(
+    action.semanticLabel,
+    action.id,
+    screenPoints,
+    action.color ?? "black",
+  );
+  context.editor.createShapes([shape]);
+  appendLabel(context.labelMap, action.semanticLabel, [shape.id as TLShapeId]);
+}
+
+function applyTangentLineAction(
+  context: RenderContext,
+  action: Extract<DrawAction, { type: "tangent_line" }>,
+) {
+  const transform = context.axesMap[action.axesLabel];
+  if (!transform) {
+    context.warnings.push(
+      `tangent_line "${action.semanticLabel}": axes "${action.axesLabel}" not found.`,
+    );
+    return;
+  }
+
+  let poly;
+  try {
+    poly = parsePolynomial(action.expression);
+  } catch (e) {
+    context.warnings.push(
+      `tangent_line "${action.semanticLabel}": ${e instanceof Error ? e.message : String(e)}`,
+    );
+    return;
+  }
+
+  const a = action.x;
+  const y0 = evaluatePolynomial(poly, a);
+  const m = evaluatePolynomial(derivativePolynomial(poly), a);
+  const L = action.length ?? 4;
+
+  const sx1 = transform.toScreenX(a - L / 2);
+  const sy1 = transform.toScreenY(y0 - (m * L) / 2);
+  const sx2 = transform.toScreenX(a + L / 2);
+  const sy2 = transform.toScreenY(y0 + (m * L) / 2);
+
+  const shapeId = createShapeId(action.semanticLabel);
+  context.editor.createShapes([
+    {
+      id: shapeId,
+      type: "line",
+      x: sx1,
+      y: sy1,
+      meta: { semanticLabel: action.semanticLabel, actionId: action.id },
+      props: {
+        color: (action.color ?? "red") as never,
+        dash: "draw",
+        size: "m",
+        spline: "line",
+        scale: 1,
+        points: {
+          a1: { id: "a1", index: "a1" as never, x: 0, y: 0 },
+          a2: { id: "a2", index: "a2" as never, x: sx2 - sx1, y: sy2 - sy1 },
+        },
+      },
+    },
+  ]);
+  appendLabel(context.labelMap, action.semanticLabel, [shapeId]);
+}
+
+function applyPointAction(
+  context: RenderContext,
+  action: Extract<DrawAction, { type: "point" }>,
+) {
+  const transform = context.axesMap[action.axesLabel];
+  if (!transform) {
+    context.warnings.push(
+      `point "${action.semanticLabel}": axes "${action.axesLabel}" not found.`,
+    );
+    return;
+  }
+
+  let poly;
+  try {
+    poly = parsePolynomial(action.expression);
+  } catch (e) {
+    context.warnings.push(
+      `point "${action.semanticLabel}": ${e instanceof Error ? e.message : String(e)}`,
+    );
+    return;
+  }
+
+  const mx = action.x;
+  const sx = transform.toScreenX(mx);
+  const sy = transform.toScreenY(evaluatePolynomial(poly, mx));
+  const dotSize = 8;
+
+  const dotId = createShapeId(`${action.semanticLabel}__dot`);
+  const allShapeIds: TLShapeId[] = [dotId];
+  const shapes: ShapePartial[] = [
+    {
+      id: dotId,
+      type: "geo",
+      x: sx - dotSize / 2,
+      y: sy - dotSize / 2,
+      meta: { semanticLabel: action.semanticLabel, actionId: action.id },
+      props: {
+        geo: "ellipse",
+        w: dotSize,
+        h: dotSize,
+        color: "red",
+        fill: "solid",
+        dash: "solid",
+        size: "s",
+        url: "",
+        growY: 0,
+        scale: 1,
+        labelColor: "black",
+        font: "draw",
+        align: "middle",
+        verticalAlign: "middle",
+        richText: toRichText(""),
+      },
+    },
+  ];
+
+  if (action.label) {
+    const textId = createShapeId(`${action.semanticLabel}__label`);
+    allShapeIds.push(textId);
+    shapes.push({
+      id: textId,
+      type: "text",
+      x: sx + dotSize,
+      y: sy - dotSize,
+      meta: { semanticLabel: action.semanticLabel, actionId: action.id },
+      props: {
+        color: "black",
+        scale: 0.6,
+        richText: toRichText(action.label),
+        textAlign: "start",
+      },
+    });
+  }
+
+  context.editor.createShapes(shapes);
+  appendLabel(context.labelMap, action.semanticLabel, allShapeIds);
+}
+
 function applyAction(context: RenderContext, action: DrawAction) {
   switch (action.type) {
     case "create_shape":
@@ -386,6 +808,18 @@ function applyAction(context: RenderContext, action: DrawAction) {
       break;
     case "erase":
       applyEraseAction(context, action);
+      break;
+    case "axes":
+      applyAxesAction(context, action);
+      break;
+    case "plot_function":
+      applyPlotFunctionAction(context, action);
+      break;
+    case "tangent_line":
+      applyTangentLineAction(context, action);
+      break;
+    case "point":
+      applyPointAction(context, action);
       break;
   }
 

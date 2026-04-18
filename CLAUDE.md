@@ -70,18 +70,28 @@ No SSE or streaming yet; `/api/lesson` returns the full plan in one JSON payload
 
 ### DrawAction model
 
-Seven action shapes live in [lib/tutor-core.ts](lib/tutor-core.ts):
+Eleven action shapes live in [lib/tutor-core.ts](lib/tutor-core.ts):
 
 - `create_shape` with `kind` ∈ `text | rect | ellipse | line`
 - `highlight` — wraps a semi-transparent yellow rect around shapes matched by `targetLabel`
 - `arrow` — connects `fromLabel` → `toLabel` centers
 - `erase` — deletes every shape under each `targetLabels` entry
+- `axes` — draws a coordinate system (axes, ticks, labels) and stores an `AxesTransform` in `RenderContext.axesMap[semanticLabel]`; fields: `x, y, width, height, xMin, xMax, yMin, yMax`, optional `xLabel, yLabel`. Emits multiple sub-shapes all mapped under the same `semanticLabel` in `LabelMap` so a single `erase` clears the whole coord system.
+- `plot_function` — samples a polynomial and draws a polyline curve; fields: `axesLabel, expression`, optional `xMin, xMax, samples, color`. Requires a prior `axes` action with matching `axesLabel`.
+- `tangent_line` — draws a tangent segment at `x=a`; fields: `axesLabel, expression, x`, optional `length` (math-domain, default 4), `color` (default "red"). Slope computed via `derivativePolynomial`.
+- `point` — places a filled dot + optional text label at `(a, f(a))`; fields: `axesLabel, expression, x`, optional `label`.
 
 Every action carries a `semanticLabel`. The renderer uses it both as a key in `LabelMap` (many shapes may share a label) **and** as the input to `createShapeId(...)` — so duplicate `semanticLabel`s across `create_shape` actions collide on tldraw shape IDs. Keep labels unique per create; re-use them only in highlight/arrow/erase references.
+
+For the four calculus actions, `axes` must appear before any `plot_function`, `tangent_line`, or `point` action that references its `semanticLabel`. Sub-shapes from `axes` use derived IDs (e.g. `${semanticLabel}__xaxis`, `${semanticLabel}__xtick_0`) to avoid collisions while still being grouped under the parent label in `LabelMap`.
+
+The polynomial evaluator lives in [lib/poly-math.ts](lib/poly-math.ts) (`parsePolynomial`, `evaluatePolynomial`, `derivativePolynomial`). Hard limit: polynomial degree ≤ 4 (`MAX_DEGREE`). Unsupported expressions throw and the renderer pushes a warning — the rest of the lesson still plays.
 
 **Composite actions that emit multiple shapes** (e.g. a hypothetical `axes` action emitting axis lines + ticks + axis-label texts) must keep shape IDs and LabelMap keys decoupled: derive a unique tldraw ID per sub-shape (e.g. `createShapeId(\`${semanticLabel}__xtick_${i}\`)`), but append *all* of those IDs into `labelMap[semanticLabel]` via `appendLabel` so a single `erase` on the action's `semanticLabel` clears the whole group. Don't try to re-use one `semanticLabel` as-is across multiple `createShapes` calls — the second call will silently drop on ID collision.
 
 Coordinates are tldraw page coords. The K2 prompt currently constrains x∈[120, 560], y∈[80, 340] to stay inside a sensible frame — if you widen that range, update the prompt in [lib/k2-lesson-service.ts:81-86](lib/k2-lesson-service.ts#L81-L86) too.
+
+**Derivative lesson layout convention (wipe-and-draw):** the K2 prompt splits derivative lessons into two phases. Phase 1 (steps 1-4) stacks symbolic narration text on the left column at fixed y-coordinates (80, 115, 160, 205+, 295). Phase 2 (step 5) begins with an `erase` action targeting every Phase-1 label, then draws axes + curve + tangents on the full canvas. This prevents narration text and graph shapes from ever occupying the same space. If you add more calculus problem types, follow the same two-phase erase pattern.
 
 ### Re-render model
 

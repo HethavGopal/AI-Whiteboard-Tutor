@@ -76,6 +76,59 @@ const eraseActionSchema = z.object({
   targetLabels: z.array(z.string().min(1)).min(1),
 });
 
+const axesActionSchema = z.object({
+  id: z.string(),
+  type: z.literal("axes"),
+  semanticLabel: z.string().min(1),
+  description: z.string().optional(),
+  x: z.number(),
+  y: z.number(),
+  width: z.number().positive(),
+  height: z.number().positive(),
+  xMin: z.number(),
+  xMax: z.number(),
+  yMin: z.number(),
+  yMax: z.number(),
+  xLabel: z.string().optional(),
+  yLabel: z.string().optional(),
+});
+
+const plotFunctionActionSchema = z.object({
+  id: z.string(),
+  type: z.literal("plot_function"),
+  semanticLabel: z.string().min(1),
+  description: z.string().optional(),
+  axesLabel: z.string().min(1),
+  expression: z.string().min(1),
+  xMin: z.number().optional(),
+  xMax: z.number().optional(),
+  samples: z.number().int().positive().optional(),
+  color: z.string().optional(),
+});
+
+const tangentLineActionSchema = z.object({
+  id: z.string(),
+  type: z.literal("tangent_line"),
+  semanticLabel: z.string().min(1),
+  description: z.string().optional(),
+  axesLabel: z.string().min(1),
+  expression: z.string().min(1),
+  x: z.number(),
+  length: z.number().optional(),
+  color: z.string().optional(),
+});
+
+const pointActionSchema = z.object({
+  id: z.string(),
+  type: z.literal("point"),
+  semanticLabel: z.string().min(1),
+  description: z.string().optional(),
+  axesLabel: z.string().min(1),
+  expression: z.string().min(1),
+  x: z.number(),
+  label: z.string().optional(),
+});
+
 export const drawActionSchema = z.union([
   createTextShapeActionSchema,
   createRectShapeActionSchema,
@@ -84,6 +137,10 @@ export const drawActionSchema = z.union([
   highlightActionSchema,
   arrowActionSchema,
   eraseActionSchema,
+  axesActionSchema,
+  plotFunctionActionSchema,
+  tangentLineActionSchema,
+  pointActionSchema,
 ]);
 
 export const stepSchema = z.object({
