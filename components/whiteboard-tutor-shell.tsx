@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 import { WhiteboardCanvas } from "@/components/whiteboard-canvas";
 import { lessonPlanSchema } from "@/lib/tutor-core";
+import { useStepNarration } from "@/lib/use-step-narration";
 import { useTutorStore } from "@/lib/tutor-store";
 
 function StatusPill({
@@ -38,14 +39,18 @@ export function WhiteboardTutorShell() {
     replayCurrentStep,
     loadMockLesson,
   } = useTutorStore();
+  useStepNarration();
   const [isGeneratingLesson, setIsGeneratingLesson] = useState(false);
   const [generationError, setGenerationError] = useState<string | null>(null);
+  const [isExtracting, setIsExtracting] = useState(false);
+  const [extractError, setExtractError] = useState<string | null>(null);
+  const photoInputRef = useRef<HTMLInputElement | null>(null);
 
   const currentStep = lessonPlan?.steps[currentStepIndex] ?? null;
   const totalSteps = lessonPlan?.steps.length ?? 0;
 
-  async function handleGenerateLesson() {
-    const trimmedProblem = problemInput.trim();
+  async function handleGenerateLesson(overrideText?: string) {
+    const trimmedProblem = (overrideText ?? problemInput).trim();
     if (!trimmedProblem) {
       setGenerationError("Enter a problem before generating a lesson.");
       return;
@@ -81,6 +86,45 @@ export function WhiteboardTutorShell() {
       );
     } finally {
       setIsGeneratingLesson(false);
+    }
+  }
+
+  async function handlePhotoUpload(
+    event: React.ChangeEvent<HTMLInputElement>,
+  ) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    setIsExtracting(true);
+    setExtractError(null);
+
+    try {
+      const form = new FormData();
+      form.append("image", file);
+      const res = await fetch("/api/extract", {
+        method: "POST",
+        body: form,
+      });
+      const payload = (await res.json()) as {
+        problemText?: string;
+        error?: string;
+      };
+      if (payload.error === "not_math") {
+        setExtractError("No math detected in that image. Try another photo.");
+        return;
+      }
+      if (!res.ok || !payload.problemText) {
+        throw new Error(payload.error ?? "Extraction failed.");
+      }
+      setProblemInput(payload.problemText);
+      await handleGenerateLesson(payload.problemText);
+    } catch (err) {
+      setExtractError(
+        err instanceof Error ? err.message : "Extraction failed.",
+      );
+    } finally {
+      setIsExtracting(false);
+      if (photoInputRef.current) photoInputRef.current.value = "";
     }
   }
 
@@ -150,12 +194,35 @@ export function WhiteboardTutorShell() {
             <div className="mt-4 flex flex-wrap gap-2">
               <button
                 type="button"
-                onClick={handleGenerateLesson}
+                onClick={() => handleGenerateLesson()}
                 disabled={isGeneratingLesson}
                 className="rounded-2xl border border-sky-300 bg-sky-300/15 px-4 py-2 text-sm font-medium text-sky-100 transition hover:bg-sky-300/25 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {isGeneratingLesson ? "Generating lesson..." : "Generate Lesson"}
               </button>
+            </div>
+
+            <div className="mt-3">
+              <label className="block text-sm font-medium text-zinc-200">
+                Or upload a photo of a problem
+              </label>
+              <input
+                ref={photoInputRef}
+                type="file"
+                accept="image/*"
+                capture="environment"
+                onChange={handlePhotoUpload}
+                disabled={isExtracting || isGeneratingLesson}
+                className="mt-2 block w-full text-sm text-zinc-300 file:mr-3 file:rounded-full file:border-0 file:bg-sky-400/15 file:px-4 file:py-1.5 file:text-sky-100 hover:file:bg-sky-400/25 disabled:opacity-60"
+              />
+              {isExtracting ? (
+                <p className="mt-2 text-xs text-sky-200">
+                  Extracting problem from image...
+                </p>
+              ) : null}
+              {extractError ? (
+                <p className="mt-2 text-xs text-rose-200">{extractError}</p>
+              ) : null}
             </div>
 
             {generationError ? (
@@ -214,7 +281,6 @@ export function WhiteboardTutorShell() {
                 lessonPlan={lessonPlan}
                 currentStepIndex={currentStepIndex}
                 renderRevision={renderRevision}
-                onStepPlaybackComplete={nextStep}
               />
             </div>
           </section>
