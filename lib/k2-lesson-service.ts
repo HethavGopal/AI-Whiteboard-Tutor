@@ -150,6 +150,67 @@ ${problemText}
 `.trim();
 }
 
+type K2ChatInput = {
+  systemPrompt: string;
+  userPrompt: string;
+  temperature?: number;
+};
+
+export async function callK2Chat({
+  systemPrompt,
+  userPrompt,
+  temperature = 0.2,
+}: K2ChatInput): Promise<string> {
+  const apiKey = cleanEnvValue(process.env.K2_THINK_API_KEY);
+  if (!apiKey) {
+    throw new Error("Missing K2_THINK_API_KEY.");
+  }
+
+  const baseUrl =
+    cleanEnvValue(process.env.K2_THINK_BASE_URL) ?? DEFAULT_K2_BASE_URL;
+  const model = cleanEnvValue(process.env.K2_THINK_MODEL) ?? K2_MODEL;
+
+  if (baseUrl.includes("openrouter.ai") && apiKey.startsWith("IFM-")) {
+    throw new Error(
+      "K2_THINK_BASE_URL is pointing at OpenRouter, but your K2_THINK_API_KEY looks like an IFM/K2 key. Use an OpenRouter key with OpenRouter, or change K2_THINK_BASE_URL to your official K2-compatible endpoint.",
+    );
+  }
+
+  const response = await fetch(`${baseUrl}/chat/completions`, {
+    method: "POST",
+    headers: getK2Headers(apiKey),
+    body: JSON.stringify({
+      model,
+      temperature,
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt },
+      ],
+    }),
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`K2 request failed: ${response.status} ${errorText}`);
+  }
+
+  const data = (await response.json()) as ChatCompletionResponse;
+  const rawContent = data.choices?.[0]?.message?.content;
+  if (!rawContent) {
+    throw new Error("K2 returned an empty response.");
+  }
+  return rawContent;
+}
+
+export function parseK2JsonOrThrow(rawContent: string): unknown {
+  try {
+    return JSON.parse(extractJsonObject(rawContent));
+  } catch {
+    throw new Error("K2 returned invalid JSON.");
+  }
+}
+
 function extractBalancedJsonObjects(text: string) {
   const candidates: string[] = [];
   let depth = 0;
@@ -231,59 +292,11 @@ export async function generateLessonWithK2(input: {
 }): Promise<LessonPlan> {
   const { problemText } = generateLessonRequestSchema.parse(input);
 
-  const apiKey = cleanEnvValue(process.env.K2_THINK_API_KEY);
-  if (!apiKey) {
-    throw new Error("Missing K2_THINK_API_KEY.");
-  }
-
-  const baseUrl =
-    cleanEnvValue(process.env.K2_THINK_BASE_URL) ?? DEFAULT_K2_BASE_URL;
-  const model = cleanEnvValue(process.env.K2_THINK_MODEL) ?? K2_MODEL;
-
-  if (baseUrl.includes("openrouter.ai") && apiKey.startsWith("IFM-")) {
-    throw new Error(
-      "K2_THINK_BASE_URL is pointing at OpenRouter, but your K2_THINK_API_KEY looks like an IFM/K2 key. Use an OpenRouter key with OpenRouter, or change K2_THINK_BASE_URL to your official K2-compatible endpoint.",
-    );
-  }
-
-  const response = await fetch(`${baseUrl}/chat/completions`, {
-    method: "POST",
-    headers: getK2Headers(apiKey),
-    body: JSON.stringify({
-      model,
-      temperature: 0.2,
-      messages: [
-        {
-          role: "system",
-          content:
-            "You generate strict whiteboard lesson JSON for a tutoring app. Output JSON only.",
-        },
-        {
-          role: "user",
-          content: buildK2Prompt(problemText),
-        },
-      ],
-    }),
-    cache: "no-store",
+  const rawContent = await callK2Chat({
+    systemPrompt:
+      "You generate strict whiteboard lesson JSON for a tutoring app. Output JSON only.",
+    userPrompt: buildK2Prompt(problemText),
   });
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`K2 request failed: ${response.status} ${errorText}`);
-  }
-
-  const data = (await response.json()) as ChatCompletionResponse;
-  const rawContent = data.choices?.[0]?.message?.content;
-  if (!rawContent) {
-    throw new Error("K2 returned an empty response.");
-  }
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(extractJsonObject(rawContent));
-  } catch {
-    throw new Error("K2 returned invalid JSON.");
-  }
-
-  return lessonPlanSchema.parse(parsed);
+  return lessonPlanSchema.parse(parseK2JsonOrThrow(rawContent));
 }

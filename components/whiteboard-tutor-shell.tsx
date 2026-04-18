@@ -2,8 +2,10 @@
 
 import { useRef, useState } from "react";
 
+import { MicButton } from "@/components/mic-button";
 import { WhiteboardCanvas } from "@/components/whiteboard-canvas";
 import { lessonPlanSchema } from "@/lib/tutor-core";
+import { useResumeVoiceWindow } from "@/lib/use-resume-voice-window";
 import { useStepNarration } from "@/lib/use-step-narration";
 import { useTutorStore } from "@/lib/tutor-store";
 
@@ -30,6 +32,10 @@ export function WhiteboardTutorShell() {
     appMode,
     recordingState,
     narrationState,
+    lessonMode,
+    isThinking,
+    branchError,
+    lastTranscript,
     setProblemInput,
     setLessonPlan,
     setAppMode,
@@ -38,8 +44,11 @@ export function WhiteboardTutorShell() {
     resetLessonPlayback,
     replayCurrentStep,
     loadMockLesson,
+    resumeMainLesson,
+    cancelInterruption,
   } = useTutorStore();
   useStepNarration();
+  useResumeVoiceWindow();
   const [isGeneratingLesson, setIsGeneratingLesson] = useState(false);
   const [generationError, setGenerationError] = useState<string | null>(null);
   const [isExtracting, setIsExtracting] = useState(false);
@@ -149,6 +158,7 @@ export function WhiteboardTutorShell() {
 
             <div className="flex flex-wrap gap-2">
               <StatusPill label="Mode" value={appMode} />
+              <StatusPill label="Lesson" value={lessonMode} />
               <StatusPill label="Recording" value={recordingState} />
               <StatusPill label="Narration" value={narrationState} />
               <StatusPill
@@ -292,10 +302,60 @@ export function WhiteboardTutorShell() {
                   Lesson + transcript
                 </h2>
                 <p className="mt-2 text-sm text-zinc-300">
-                  Mock lesson content is live now. Transcript space is reserved
-                  for future Deepgram events and interruption-aware follow-ups.
+                  Push and hold the mic to interrupt the tutor and ask a
+                  question about anything currently on the board.
                 </p>
               </div>
+            </div>
+
+            <div className="mt-4 rounded-3xl border border-white/10 bg-black/20 p-4">
+              <p className="text-xs uppercase tracking-[0.22em] text-zinc-400">
+                Voice interruption
+              </p>
+              <div className="mt-3">
+                <MicButton />
+              </div>
+              {isThinking ? (
+                <p className="mt-3 text-xs text-amber-200">
+                  Generating branch explanation...
+                </p>
+              ) : null}
+              {branchError ? (
+                <p className="mt-3 text-xs text-rose-200">{branchError}</p>
+              ) : null}
+              {lastTranscript ? (
+                <p className="mt-3 text-xs text-zinc-400">
+                  Last question:{" "}
+                  <span className="text-zinc-200">&ldquo;{lastTranscript}&rdquo;</span>
+                </p>
+              ) : null}
+
+              {lessonMode === "awaiting_confirm" ? (
+                <div className="mt-4 rounded-2xl border border-emerald-300/30 bg-emerald-300/10 p-3">
+                  <p className="text-sm font-medium text-emerald-100">
+                    Ready to continue the lesson?
+                  </p>
+                  <p className="mt-1 text-xs text-emerald-50/80">
+                    Say &ldquo;yes&rdquo; or click below. Listening for ~4 seconds.
+                  </p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={resumeMainLesson}
+                      className="rounded-2xl border border-emerald-300/60 bg-emerald-300/20 px-4 py-2 text-sm font-medium text-emerald-50 transition hover:bg-emerald-300/30"
+                    >
+                      Continue lesson
+                    </button>
+                    <button
+                      type="button"
+                      onClick={cancelInterruption}
+                      className="rounded-2xl border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-zinc-200 transition hover:bg-white/10"
+                    >
+                      End here
+                    </button>
+                  </div>
+                </div>
+              ) : null}
             </div>
 
             <div className="mt-5 rounded-3xl border border-white/10 bg-black/20 p-4">

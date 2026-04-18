@@ -7,7 +7,11 @@ import { useTutorStore } from "@/lib/tutor-store";
 export function useStepNarration() {
   const lessonPlan = useTutorStore((s) => s.lessonPlan);
   const currentStepIndex = useTutorStore((s) => s.currentStepIndex);
+  const lessonMode = useTutorStore((s) => s.lessonMode);
+  const branchPlan = useTutorStore((s) => s.branchPlan);
+  const branchStepIndex = useTutorStore((s) => s.branchStepIndex);
   const nextStep = useTutorStore((s) => s.nextStep);
+  const advanceBranchStep = useTutorStore((s) => s.advanceBranchStep);
   const setNarrationState = useTutorStore((s) => s.setNarrationState);
   const narrationState = useTutorStore((s) => s.narrationState);
 
@@ -39,11 +43,44 @@ export function useStepNarration() {
   }, [cleanup, setNarrationState]);
 
   useEffect(() => {
-    if (!lessonPlan) return;
-    const step = lessonPlan.steps[currentStepIndex];
-    if (!step) return;
+    if (lessonMode === "paused" || lessonMode === "awaiting_confirm") {
+      cleanup();
+      setNarrationState("idle");
+      return;
+    }
 
-    const isLastStep = currentStepIndex >= lessonPlan.steps.length - 1;
+    let narrationText: string | null = null;
+    let isLastChunk = false;
+    let onComplete: () => void = () => {};
+
+    if (lessonMode === "main") {
+      if (!lessonPlan) return;
+      const step = lessonPlan.steps[currentStepIndex];
+      if (!step) return;
+      narrationText = step.narration;
+      isLastChunk = currentStepIndex >= lessonPlan.steps.length - 1;
+      onComplete = () => {
+        // Guard: only advance if we're still in main mode by the time audio ends.
+        if (useTutorStore.getState().lessonMode !== "main") return;
+        if (isLastChunk) {
+          setNarrationState("idle");
+        } else {
+          nextStep();
+        }
+      };
+    } else if (lessonMode === "branch") {
+      if (!branchPlan) return;
+      const step = branchPlan.steps[branchStepIndex];
+      if (!step) return;
+      narrationText = step.narration;
+      onComplete = () => {
+        if (useTutorStore.getState().lessonMode !== "branch") return;
+        advanceBranchStep();
+      };
+    }
+
+    if (!narrationText) return;
+
     const controller = new AbortController();
     abortRef.current = controller;
     let cancelled = false;
@@ -55,7 +92,7 @@ export function useStepNarration() {
         const res = await fetch("/api/tts", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ text: step.narration }),
+          body: JSON.stringify({ text: narrationText }),
           signal: controller.signal,
         });
         if (!res.ok) throw new Error(`tts ${res.status}`);
@@ -75,12 +112,7 @@ export function useStepNarration() {
             urlRef.current = null;
           }
           audioRef.current = null;
-
-          if (isLastStep) {
-            setNarrationState("idle");
-          } else {
-            nextStep();
-          }
+          onComplete();
         };
 
         audio.onerror = () => {
@@ -94,16 +126,6 @@ export function useStepNarration() {
           console.warn("audio.play() blocked:", err);
           setNarrationState("idle");
         }
-
-        // TODO (polish): prefetch step N+1 narration here to warm /api/tts cache.
-        // const next = lessonPlan.steps[currentStepIndex + 1];
-        // if (next) {
-        //   void fetch("/api/tts", {
-        //     method: "POST",
-        //     headers: { "Content-Type": "application/json" },
-        //     body: JSON.stringify({ text: next.narration }),
-        //   }).catch(() => {});
-        // }
       } catch (err) {
         if ((err as Error).name === "AbortError") return;
         console.error("narration failed:", err);
@@ -116,10 +138,14 @@ export function useStepNarration() {
       cleanup();
     };
   }, [
+    lessonMode,
     lessonPlan,
     currentStepIndex,
+    branchPlan,
+    branchStepIndex,
     cleanup,
     nextStep,
+    advanceBranchStep,
     setNarrationState,
   ]);
 

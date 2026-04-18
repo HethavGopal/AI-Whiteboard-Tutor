@@ -4,12 +4,15 @@ import { useEffect, useRef, useState } from "react";
 import { Tldraw, type Editor } from "tldraw";
 import "tldraw/tldraw.css";
 
-import type { LessonPlan } from "@/lib/tutor-core";
+import type { BranchPlan, LessonPlan } from "@/lib/tutor-core";
 import {
   isWhiteboardPlaybackAbortError,
+  playBranchStepOnTop,
   playLessonToBoard,
+  type LabelMap,
   type WhiteboardPlaybackSnapshot,
 } from "@/lib/whiteboard-renderer";
+import { useTutorStore } from "@/lib/tutor-store";
 
 type WhiteboardCanvasProps = {
   lessonPlan: LessonPlan | null;
@@ -26,6 +29,15 @@ const emptyRenderResult: WhiteboardPlaybackSnapshot = {
   activeActionId: null,
 };
 
+function lookupLabelForActionId(
+  actionId: string | null,
+  drawActions: { id: string; semanticLabel?: string }[] | undefined,
+): string | null {
+  if (!actionId || !drawActions) return null;
+  const found = drawActions.find((a) => a.id === actionId);
+  return found?.semanticLabel ?? null;
+}
+
 export function WhiteboardCanvas({
   lessonPlan,
   currentStepIndex,
@@ -36,13 +48,36 @@ export function WhiteboardCanvas({
   const [isMounted, setIsMounted] = useState(false);
   const [renderResult, setRenderResult] =
     useState<WhiteboardPlaybackSnapshot>(emptyRenderResult);
+  const liveLabelMapRef = useRef<LabelMap>({});
+
+  const lessonMode = useTutorStore((s) => s.lessonMode);
+  const branchPlan = useTutorStore((s) => s.branchPlan);
+  const branchStepIndex = useTutorStore((s) => s.branchStepIndex);
+  const setEditor = useTutorStore((s) => s.setEditor);
+  const setLastDrawnLabel = useTutorStore((s) => s.setLastDrawnLabel);
+  const pushBranchShapeIds = useTutorStore((s) => s.pushBranchShapeIds);
 
   const currentStep = lessonPlan?.steps[currentStepIndex] ?? null;
   const currentStepActionCount = currentStep?.drawActions.length ?? 0;
 
+  const branchStep: BranchPlan["steps"][number] | null =
+    branchPlan?.steps[branchStepIndex] ?? null;
+  const branchStepActionCount = branchStep?.drawActions.length ?? 0;
+
+  // Main / paused effect: drives main-step playback, also handles freeze on pause.
   useEffect(() => {
     const editor = editorRef.current;
     if (!editor || !isMounted) return;
+
+    if (lessonMode === "branch" || lessonMode === "awaiting_confirm") {
+      return;
+    }
+
+    if (lessonMode === "paused") {
+      // Freeze: don't restart drawing, don't wipe. The pause was triggered
+      // by the mic button; we keep whatever is on the board right now.
+      return;
+    }
 
     const controller = new AbortController();
 
@@ -57,6 +92,12 @@ export function WhiteboardCanvas({
       onUpdate: (snapshot) => {
         if (!controller.signal.aborted) {
           setRenderResult(snapshot);
+          liveLabelMapRef.current = snapshot.labelMap;
+          const label = lookupLabelForActionId(
+            snapshot.activeActionId,
+            currentStep?.drawActions,
+          );
+          if (label) setLastDrawnLabel(label);
         }
       },
     })
@@ -76,8 +117,7 @@ export function WhiteboardCanvas({
             warnings: [...previous.warnings, "Playback failed."],
           }));
         }
-      }
-    );
+      });
 
     return () => {
       controller.abort();
@@ -89,6 +129,63 @@ export function WhiteboardCanvas({
     lessonPlan,
     onStepPlaybackComplete,
     renderRevision,
+    lessonMode,
+    currentStep?.drawActions,
+    setLastDrawnLabel,
+  ]);
+
+  // Branch effect: plays the current branch step on top of the existing board.
+  useEffect(() => {
+    const editor = editorRef.current;
+    if (!editor || !isMounted) return;
+    if (lessonMode !== "branch") return;
+    if (!branchPlan || !branchStep) return;
+
+    const controller = new AbortController();
+
+    setRenderResult((previous) => ({
+      ...previous,
+      isAnimating: branchStepActionCount > 0,
+      activeActionId: null,
+    }));
+
+    void playBranchStepOnTop(editor, branchPlan, branchStepIndex, {
+      signal: controller.signal,
+      baseLabelMap: liveLabelMapRef.current,
+      onUpdate: (snapshot) => {
+        if (!controller.signal.aborted) {
+          setRenderResult(snapshot);
+          liveLabelMapRef.current = snapshot.labelMap;
+        }
+      },
+    })
+      .then((result) => {
+        if (controller.signal.aborted) return;
+        if (result.newShapeIds.length) {
+          pushBranchShapeIds(result.newShapeIds);
+        }
+      })
+      .catch((error) => {
+        if (!isWhiteboardPlaybackAbortError(error)) {
+          setRenderResult((previous) => ({
+            ...previous,
+            isAnimating: false,
+            warnings: [...previous.warnings, "Branch playback failed."],
+          }));
+        }
+      });
+
+    return () => {
+      controller.abort();
+    };
+  }, [
+    branchPlan,
+    branchStep,
+    branchStepActionCount,
+    branchStepIndex,
+    isMounted,
+    lessonMode,
+    pushBranchShapeIds,
   ]);
 
   return (
@@ -96,6 +193,7 @@ export function WhiteboardCanvas({
       <Tldraw
         onMount={(editor) => {
           editorRef.current = editor;
+          setEditor(editor);
           setIsMounted(true);
         }}
       />
@@ -103,7 +201,7 @@ export function WhiteboardCanvas({
       <div className="pointer-events-none absolute inset-x-4 top-4 flex flex-wrap items-center justify-between gap-3">
         <div className="rounded-full border border-sky-200 bg-white/90 px-3 py-1 text-xs font-medium text-sky-900 shadow-sm backdrop-blur">
           {isMounted
-            ? `Canvas ready | Step ${currentStepIndex + 1}${renderResult.isAnimating ? " | Animating..." : ""}`
+            ? `Canvas ready | Step ${currentStepIndex + 1}${renderResult.isAnimating ? " | Animating..." : ""} | Mode: ${lessonMode}`
             : "Mounting canvas..."}
         </div>
 

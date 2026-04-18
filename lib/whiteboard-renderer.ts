@@ -6,7 +6,7 @@ import {
 } from "@tldraw/editor";
 import { getIndices, type IndexKey } from "@tldraw/utils";
 
-import type { DrawAction, LessonPlan } from "@/lib/tutor-core";
+import type { BranchPlan, DrawAction, LessonPlan } from "@/lib/tutor-core";
 import {
   parsePolynomial,
   evaluatePolynomial,
@@ -915,4 +915,149 @@ export function renderLessonToBoard(
   zoomBoardToContent(editor);
 
   return getRenderResult(context);
+}
+
+function describeShapeForSnapshot(editor: Editor, shapeId: TLShapeId): string {
+  const shape = editor.getShape(shapeId);
+  if (!shape) return "<missing>";
+
+  const bounds = editor.getShapePageBounds(shapeId);
+  const pos = bounds
+    ? `@(${Math.round(bounds.minX)},${Math.round(bounds.minY)})`
+    : "";
+
+  const props = shape.props as Record<string, unknown>;
+
+  if (shape.type === "text") {
+    const rich = props.richText as { text?: string } | undefined;
+    const text = (rich as unknown as { content?: { content?: { text?: string }[] }[] })?.content?.[0]
+      ?.content?.[0]?.text;
+    return `text ${pos} "${text ?? rich?.text ?? ""}"`;
+  }
+  if (shape.type === "geo") {
+    const geo = (props.geo as string) ?? "geo";
+    const rich = props.richText as { text?: string } | undefined;
+    const text = (rich as unknown as { content?: { content?: { text?: string }[] }[] })?.content?.[0]
+      ?.content?.[0]?.text;
+    const w = bounds ? Math.round(bounds.width) : "?";
+    const h = bounds ? Math.round(bounds.height) : "?";
+    return `${geo} ${pos} ${w}x${h}${text ? ` "${text}"` : ""}`;
+  }
+  if (shape.type === "line") {
+    return `line ${pos}`;
+  }
+  if (shape.type === "arrow") {
+    const meta = shape.meta as Record<string, unknown>;
+    return `arrow ${meta.fromLabel ?? "?"} -> ${meta.toLabel ?? "?"}`;
+  }
+  return `${shape.type} ${pos}`;
+}
+
+export function buildSnapshotFromEditor(
+  editor: Editor,
+  lastDrawnLabel: string | null,
+): string {
+  const shapes = editor.getCurrentPageShapes();
+  const groups: Record<string, TLShapeId[]> = {};
+  for (const shape of shapes) {
+    const label = (shape.meta as Record<string, unknown> | undefined)
+      ?.semanticLabel as string | undefined;
+    if (!label) continue;
+    groups[label] = groups[label] ?? [];
+    groups[label].push(shape.id as TLShapeId);
+  }
+  return buildBoardSnapshot(editor, groups, lastDrawnLabel);
+}
+
+export function buildBoardSnapshot(
+  editor: Editor,
+  labelMap: LabelMap,
+  lastDrawnLabel: string | null,
+): string {
+  const lines: string[] = [];
+  for (const [label, shapeIds] of Object.entries(labelMap)) {
+    if (!shapeIds.length) continue;
+    const liveIds = shapeIds.filter((id) => editor.getShape(id));
+    if (!liveIds.length) continue;
+    const description = describeShapeForSnapshot(editor, liveIds[0]);
+    const groupSuffix =
+      liveIds.length > 1 ? ` (+${liveIds.length - 1} sub-shapes)` : "";
+    const marker = label === lastDrawnLabel ? "  <- last drawn" : "";
+    lines.push(`- ${label}: ${description}${groupSuffix}${marker}`);
+  }
+  if (!lines.length) return "(board is empty)";
+  return lines.join("\n");
+}
+
+export function eraseShapeIds(editor: Editor, shapeIds: TLShapeId[]) {
+  if (!shapeIds.length) return;
+  const live = shapeIds.filter((id) => editor.getShape(id));
+  if (!live.length) return;
+  editor.deleteShapes(live);
+}
+
+export type BranchPlaybackResult = WhiteboardRenderResult & {
+  newShapeIds: TLShapeId[];
+};
+
+export type BranchPlaybackOptions = WhiteboardPlaybackOptions & {
+  baseLabelMap: LabelMap;
+};
+
+export async function playBranchStepOnTop(
+  editor: Editor,
+  branchPlan: BranchPlan | null,
+  branchStepIndex: number,
+  options: BranchPlaybackOptions,
+): Promise<BranchPlaybackResult> {
+  const context: RenderContext = {
+    editor,
+    labelMap: cloneLabelMap(options.baseLabelMap),
+    renderedActionIds: [],
+    warnings: [],
+    axesMap: {},
+  };
+
+  if (!branchPlan) {
+    return { ...getRenderResult(context), newShapeIds: [] };
+  }
+  const step = branchPlan.steps[branchStepIndex];
+  if (!step) {
+    return { ...getRenderResult(context), newShapeIds: [] };
+  }
+
+  const idsBefore = new Set(
+    Object.values(context.labelMap).flat().map((id) => id as string),
+  );
+  const newShapeIds: TLShapeId[] = [];
+
+  const actionDelayMs =
+    options.actionDelayMs ?? whiteboardPlaybackConfig.defaultActionDelayMs;
+
+  emitSnapshot(context, options, step.drawActions.length > 0, null);
+
+  for (let index = 0; index < step.drawActions.length; index += 1) {
+    const action = step.drawActions[index];
+    throwIfAborted(options.signal);
+
+    applyAction(context, action);
+
+    for (const ids of Object.values(context.labelMap)) {
+      for (const id of ids) {
+        if (!idsBefore.has(id as string)) {
+          idsBefore.add(id as string);
+          newShapeIds.push(id);
+        }
+      }
+    }
+
+    emitSnapshot(context, options, true, action.id);
+
+    if (index < step.drawActions.length - 1) {
+      await wait(actionDelayMs, options.signal);
+    }
+  }
+
+  emitSnapshot(context, options, false, null);
+  return { ...getRenderResult(context), newShapeIds };
 }

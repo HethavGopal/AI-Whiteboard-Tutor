@@ -158,6 +158,12 @@ export const lessonPlanSchema = z.object({
   steps: z.array(stepSchema).min(1),
 });
 
+export const branchPlanSchema = z.object({
+  id: z.string(),
+  title: z.string().optional(),
+  steps: z.array(stepSchema).min(1).max(3),
+});
+
 export const generateLessonRequestSchema = z.object({
   problemText: z.string().trim().min(1).max(500),
 });
@@ -183,6 +189,7 @@ export const transcriptionEventSchema = z.object({
 export type DrawAction = z.infer<typeof drawActionSchema>;
 export type Step = z.infer<typeof stepSchema>;
 export type LessonPlan = z.infer<typeof lessonPlanSchema>;
+export type BranchPlan = z.infer<typeof branchPlanSchema>;
 export type GenerateLessonRequest = z.infer<typeof generateLessonRequestSchema>;
 export type ExtractedProblem = z.infer<typeof extractedProblemSchema>;
 export type NarrationChunk = z.infer<typeof narrationChunkSchema>;
@@ -191,6 +198,7 @@ export type TranscriptionEvent = z.infer<typeof transcriptionEventSchema>;
 export type AppMode = "lesson" | "follow-up";
 export type RecordingState = "idle" | "listening" | "paused";
 export type NarrationState = "idle" | "queued" | "speaking";
+export type LessonMode = "main" | "paused" | "branch" | "awaiting_confirm";
 
 export const mockLessonPlan = lessonPlanSchema.parse({
   id: "solve-linear-equation-1",
