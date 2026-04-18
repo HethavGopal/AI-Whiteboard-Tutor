@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Hackathon MVP. The typed-problem → K2 lesson → tldraw playback path is wired end-to-end with a mock-lesson fallback. Image upload → problem extraction is live via [app/api/extract/route.ts](app/api/extract/route.ts) (Gemini 2.0 Flash). TTS narration is live via [app/api/tts/route.ts](app/api/tts/route.ts) (ElevenLabs Flash v2.5) and drives step advancement through [lib/use-step-narration.ts](lib/use-step-narration.ts) — `audio.ended` is the clock. Live transcription (STT) is still out of MVP scope. The `notReady` service stubs in [lib/tutor-core.ts](lib/tutor-core.ts) are vestigial — the real integrations live in the API routes and hook instead.
 
-Also read [AGENTS.md](AGENTS.md): **this is Next.js 15 / React 19** — APIs and conventions differ from older training data. When unsure, consult `node_modules/next/dist/docs/`.
+**This is Next.js 15 / React 19** — APIs and conventions differ from older training data. When unsure about Next.js behavior, consult `node_modules/next/dist/docs/`. The dev server runs with Turbopack (`next.config.ts`).
 
 ## Commands
 
@@ -78,6 +78,8 @@ Seven action shapes live in [lib/tutor-core.ts](lib/tutor-core.ts):
 - `erase` — deletes every shape under each `targetLabels` entry
 
 Every action carries a `semanticLabel`. The renderer uses it both as a key in `LabelMap` (many shapes may share a label) **and** as the input to `createShapeId(...)` — so duplicate `semanticLabel`s across `create_shape` actions collide on tldraw shape IDs. Keep labels unique per create; re-use them only in highlight/arrow/erase references.
+
+**Composite actions that emit multiple shapes** (e.g. a hypothetical `axes` action emitting axis lines + ticks + axis-label texts) must keep shape IDs and LabelMap keys decoupled: derive a unique tldraw ID per sub-shape (e.g. `createShapeId(\`${semanticLabel}__xtick_${i}\`)`), but append *all* of those IDs into `labelMap[semanticLabel]` via `appendLabel` so a single `erase` on the action's `semanticLabel` clears the whole group. Don't try to re-use one `semanticLabel` as-is across multiple `createShapes` calls — the second call will silently drop on ID collision.
 
 Coordinates are tldraw page coords. The K2 prompt currently constrains x∈[120, 560], y∈[80, 340] to stay inside a sensible frame — if you widen that range, update the prompt in [lib/k2-lesson-service.ts:81-86](lib/k2-lesson-service.ts#L81-L86) too.
 
