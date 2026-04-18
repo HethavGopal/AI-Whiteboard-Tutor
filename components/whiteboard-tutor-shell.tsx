@@ -1,25 +1,371 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { WhiteboardCanvas } from "@/components/whiteboard-canvas";
-import { lessonPlanSchema } from "@/lib/tutor-core";
+import { lessonPlanSchema, type LessonPlan } from "@/lib/tutor-core";
 import { useStepNarration } from "@/lib/use-step-narration";
 import { useTutorStore } from "@/lib/tutor-store";
 
-function StatusPill({
-  label,
-  value,
+// ─────────────────────────────────────────────────────────────────────────────
+// Types
+// ─────────────────────────────────────────────────────────────────────────────
+
+type ChatMessage = {
+  id: string;
+  role: "user" | "ai";
+  content: string;
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Design tokens
+// ─────────────────────────────────────────────────────────────────────────────
+
+const card =
+  "overflow-hidden rounded-2xl border border-[#eadfd6] bg-white " +
+  "shadow-[0_4px_24px_0_rgba(47,36,31,0.09),0_0_0_1px_rgba(255,145,77,0.05)]";
+
+const btnPrimary =
+  "rounded-xl bg-[#ff914d] px-4 py-2 text-sm font-semibold text-white " +
+  "shadow-sm transition hover:bg-[#ff7a2f] active:scale-[0.98] " +
+  "disabled:cursor-not-allowed disabled:opacity-50";
+
+const btnGhost =
+  "rounded-xl border border-[#eadfd6] bg-white px-3 py-1.5 text-xs " +
+  "font-medium text-[#6f625b] transition " +
+  "hover:border-[#ff914d]/50 hover:bg-[#fff1e8] hover:text-[#ff7a2f] " +
+  "active:scale-[0.98]";
+
+const btnAccent =
+  "rounded-xl border border-[#ff914d]/35 bg-[#fff1e8] px-3 py-1.5 " +
+  "text-xs font-semibold text-[#ff7a2f] transition " +
+  "hover:bg-[#ffdfc9] active:scale-[0.98]";
+
+const btnNav =
+  "rounded-lg px-3.5 py-1.5 text-sm font-medium text-[#6f625b] transition " +
+  "hover:bg-[#fff1e8] hover:text-[#ff914d]";
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Navbar
+// ─────────────────────────────────────────────────────────────────────────────
+
+function Navbar({
+  onNew,
+  onReset,
 }: {
-  label: string;
-  value: string;
+  onNew: () => void;
+  onReset: () => void;
 }) {
   return (
-    <div className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-zinc-300">
-      <span className="text-zinc-400">{label}:</span> {value}
+    <nav
+      className="relative z-20 flex h-[84px] shrink-0 items-center justify-between
+        border-b border-[#f0e4d8]
+        bg-gradient-to-b from-white via-white to-[#fffcf9]
+        px-6 shadow-[0_2px_16px_0_rgba(255,145,77,0.1)]"
+    >
+      {/* Logo — large, fully contained */}
+      <img
+        src="/Boardly.svg"
+        alt="Boardly"
+        className="h-[64px] w-auto"
+      />
+
+      {/* Right side */}
+      <div className="flex items-center gap-2">
+        <button type="button" onClick={onNew} className={btnNav}>
+          New
+        </button>
+        <div className="h-4 w-px bg-[#eadfd6]" />
+        <button type="button" onClick={onReset} className={btnNav}>
+          Reset
+        </button>
+      </div>
+    </nav>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Board panel header  (sits above the tldraw canvas)
+// ─────────────────────────────────────────────────────────────────────────────
+
+function BoardHeader({
+  lessonTitle,
+  currentStepIndex,
+  totalSteps,
+}: {
+  lessonTitle: string | null;
+  currentStepIndex: number;
+  totalSteps: number;
+}) {
+  return (
+    <div className="flex shrink-0 items-center justify-between border-b border-[#eadfd6] bg-gradient-to-r from-[#fffaf5] to-white px-5 py-3">
+      {/* Left — identity */}
+      <div className="flex items-center gap-2.5">
+        <span className="flex h-5 w-5 items-center justify-center rounded-md bg-[#ff914d] text-[10px] font-bold text-white shadow-sm">
+          B
+        </span>
+        <span className="text-[11px] font-semibold uppercase tracking-widest text-[#9b8f87]">
+          Board
+        </span>
+        {lessonTitle && (
+          <>
+            <span className="text-[#e0d4ca]">/</span>
+            <span className="max-w-[260px] truncate text-xs font-medium text-[#6f625b]">
+              {lessonTitle}
+            </span>
+          </>
+        )}
+      </div>
+
+      {/* Right — step pill */}
+      {totalSteps > 0 ? (
+        <div className="flex items-center gap-2">
+          <div className="h-1 w-24 overflow-hidden rounded-full bg-[#eadfd6]">
+            <div
+              className="h-full rounded-full bg-[#ff914d] transition-all duration-500"
+              style={{ width: `${((currentStepIndex + 1) / totalSteps) * 100}%` }}
+            />
+          </div>
+          <span className="rounded-full bg-[#fff1e8] px-2.5 py-0.5 text-[11px] font-semibold text-[#ff7a2f]">
+            {currentStepIndex + 1} / {totalSteps}
+          </span>
+        </div>
+      ) : (
+        <span className="text-[11px] text-[#c9bdb5]">No lesson loaded</span>
+      )}
     </div>
   );
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Chat panel
+// ─────────────────────────────────────────────────────────────────────────────
+
+function ChatPanel({
+  messages,
+  inputValue,
+  onInputChange,
+  onSend,
+  onPhotoUpload,
+  isLoading,
+  isExtracting,
+  error,
+  photoInputRef,
+  lessonPlan,
+  currentStepIndex,
+  totalSteps,
+  onPrevious,
+  onNext,
+  onResetPlayback,
+  onReplay,
+  onLoadMock,
+}: {
+  messages: ChatMessage[];
+  inputValue: string;
+  onInputChange: (v: string) => void;
+  onSend: () => void;
+  onPhotoUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  isLoading: boolean;
+  isExtracting: boolean;
+  error: string | null;
+  photoInputRef: React.RefObject<HTMLInputElement | null>;
+  lessonPlan: LessonPlan | null;
+  currentStepIndex: number;
+  totalSteps: number;
+  onPrevious: () => void;
+  onNext: () => void;
+  onResetPlayback: () => void;
+  onReplay: () => void;
+  onLoadMock: () => void;
+}) {
+  const currentStep = lessonPlan?.steps[currentStepIndex] ?? null;
+  const messagesRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (messagesRef.current) messagesRef.current.scrollTop = 0;
+  }, [messages.length]);
+
+  return (
+    <div className={`flex h-full flex-col ${card}`}>
+
+      {/* ── Panel header ── */}
+      <div className="shrink-0 border-b border-[#eadfd6] bg-gradient-to-r from-[#fff7f1] to-[#fffcf9] px-4 py-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <img src="/Boardly.svg" alt="Boardly" className="h-7 w-auto opacity-90" />
+            <span className="text-[11px] font-semibold uppercase tracking-widest text-[#9b8f87]">
+              Tutor
+            </span>
+          </div>
+          {/* Status dot */}
+          <div className="flex items-center gap-1.5">
+            <span className="relative flex h-2 w-2">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#ff914d] opacity-50" />
+              <span className="relative inline-flex h-2 w-2 rounded-full bg-[#ff914d]" />
+            </span>
+            <span className="text-[11px] font-medium text-[#9b8f87]">Ready</span>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Scrollable messages ── */}
+      <div ref={messagesRef} className="flex-1 space-y-3 overflow-y-auto p-4">
+
+        {/* Step progress card */}
+        {lessonPlan && (
+          <div className="rounded-2xl border border-[#eadfd6] bg-[#fff7f1] p-4">
+            <div className="flex items-center gap-2">
+              <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#ff914d] text-[10px] font-bold text-white">
+                {totalSteps > 0 ? currentStepIndex + 1 : "·"}
+              </span>
+              <p className="truncate text-xs font-semibold uppercase tracking-wider text-[#9b8f87]">
+                {lessonPlan.title}
+              </p>
+            </div>
+
+            <p className="mt-2 text-sm font-semibold text-[#2f241f]">
+              Step {totalSteps > 0 ? currentStepIndex + 1 : 0}
+              <span className="font-normal text-[#9b8f87]"> of {totalSteps}</span>
+            </p>
+
+            {currentStep && (
+              <p className="mt-1.5 text-xs leading-relaxed text-[#6f625b]">
+                {currentStep.narration}
+              </p>
+            )}
+
+            {totalSteps > 0 && (
+              <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-[#eadfd6]">
+                <div
+                  className="h-full rounded-full bg-[#ff914d] transition-all duration-300"
+                  style={{ width: `${((currentStepIndex + 1) / totalSteps) * 100}%` }}
+                />
+              </div>
+            )}
+
+            <div className="mt-3 flex flex-wrap gap-1.5">
+              <button type="button" onClick={onPrevious} className={btnGhost}>← Prev</button>
+              <button type="button" onClick={onNext} className={btnAccent}>Next →</button>
+              <button type="button" onClick={onResetPlayback} className={btnGhost}>Reset</button>
+              <button type="button" onClick={onReplay} className={btnGhost}>Replay</button>
+            </div>
+          </div>
+        )}
+
+        {/* Messages — newest at top */}
+        {messages.map((msg) => (
+          <div
+            key={msg.id}
+            className={`flex flex-col gap-1 ${msg.role === "user" ? "items-end" : "items-start"}`}
+          >
+            <span className="px-0.5 text-[11px] font-semibold uppercase tracking-wide text-[#9b8f87]">
+              {msg.role === "user" ? "You" : "Boardly"}
+            </span>
+            <div
+              className={`max-w-[88%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
+                msg.role === "user"
+                  ? "bg-[#fff1e8] text-[#2f241f]"
+                  : "border border-[#eadfd6] bg-white text-[#6f625b]"
+              }`}
+            >
+              {msg.content}
+            </div>
+          </div>
+        ))}
+
+        {/* Empty state */}
+        {messages.length === 0 && !lessonPlan && (
+          <div className="flex flex-col items-center justify-center py-10 text-center">
+            {/* Floating icon badge */}
+            <div className="relative mb-5">
+              <div className="h-16 w-16 rounded-[20px] bg-gradient-to-br from-[#fff1e8] to-[#ffe4cc] shadow-[0_4px_16px_0_rgba(255,145,77,0.22)]" />
+              <span className="absolute inset-0 flex items-center justify-center text-[28px]">✏️</span>
+            </div>
+            <p className="text-[15px] font-semibold text-[#2f241f]">
+              What would you like to learn?
+            </p>
+            <p className="mt-2 max-w-[190px] text-xs leading-relaxed text-[#9b8f87]">
+              Type any maths problem below, or snap a photo of your notes to get started.
+            </p>
+            {/* Suggestion chips */}
+            <div className="mt-5 flex flex-col gap-2 w-full px-2">
+              {[
+                "Solve 2x + 3 = 11",
+                "Differentiate x² + 3x",
+                "Factorise x² − 5x + 6",
+              ].map((suggestion) => (
+                <button
+                  key={suggestion}
+                  type="button"
+                  onClick={() => onInputChange(suggestion)}
+                  className="w-full rounded-xl border border-[#eadfd6] bg-[#fffaf5] px-3 py-2 text-left text-xs text-[#6f625b] transition hover:border-[#ff914d]/50 hover:bg-[#fff1e8] hover:text-[#ff7a2f]"
+                >
+                  {suggestion}
+                </button>
+              ))}
+            </div>
+            <div className="mt-5 flex items-center gap-3">
+              <div className="h-px w-10 bg-[#eadfd6]" />
+              <span className="text-[11px] text-[#c9bdb5]">ask anything</span>
+              <div className="h-px w-10 bg-[#eadfd6]" />
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ── Input area — bottom ── */}
+      <div className="shrink-0 border-t border-[#eadfd6] bg-[#fff7f1] px-4 py-3">
+        <div className="flex gap-2">
+          <input
+            type="text"
+            value={inputValue}
+            onChange={(e) => onInputChange(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                onSend();
+              }
+            }}
+            placeholder="e.g. solve 2x + 3 = 11…"
+            className="min-w-0 flex-1 rounded-xl border border-[#eadfd6] bg-white px-3.5 py-2.5 text-sm
+              text-[#2f241f] outline-none transition placeholder:text-[#9b8f87]
+              focus:border-[#ff914d] focus:ring-2 focus:ring-[#ff914d]/15"
+          />
+          <button
+            type="button"
+            onClick={onSend}
+            disabled={isLoading || isExtracting}
+            className={btnPrimary}
+          >
+            {isLoading ? "…" : "Ask"}
+          </button>
+        </div>
+        <div className="mt-2 flex items-center gap-1.5">
+          <label className={`${btnGhost} cursor-pointer`}>
+            {isExtracting ? "Reading…" : "📷 Photo"}
+            <input
+              ref={photoInputRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              onChange={onPhotoUpload}
+              disabled={isExtracting || isLoading}
+              className="sr-only"
+            />
+          </label>
+          <button type="button" onClick={onLoadMock} className={btnGhost}>
+            Try example
+          </button>
+          {error && <p className="ml-1 truncate text-[11px] text-red-400">{error}</p>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Main shell
+// ─────────────────────────────────────────────────────────────────────────────
 
 export function WhiteboardTutorShell() {
   const {
@@ -27,27 +373,32 @@ export function WhiteboardTutorShell() {
     lessonPlan,
     currentStepIndex,
     renderRevision,
-    appMode,
-    recordingState,
-    narrationState,
     setProblemInput,
     setLessonPlan,
-    setAppMode,
     previousStep,
     nextStep,
     resetLessonPlayback,
     replayCurrentStep,
     loadMockLesson,
   } = useTutorStore();
+
   useStepNarration();
+
   const [isGeneratingLesson, setIsGeneratingLesson] = useState(false);
   const [generationError, setGenerationError] = useState<string | null>(null);
   const [isExtracting, setIsExtracting] = useState(false);
   const [extractError, setExtractError] = useState<string | null>(null);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const photoInputRef = useRef<HTMLInputElement | null>(null);
 
-  const currentStep = lessonPlan?.steps[currentStepIndex] ?? null;
   const totalSteps = lessonPlan?.steps.length ?? 0;
+
+  function pushMessage(msg: Omit<ChatMessage, "id">) {
+    setMessages((prev) => [
+      { ...msg, id: `${Date.now()}-${Math.random()}` },
+      ...prev,
+    ]);
+  }
 
   async function handleGenerateLesson(overrideText?: string) {
     const trimmedProblem = (overrideText ?? problemInput).trim();
@@ -58,32 +409,32 @@ export function WhiteboardTutorShell() {
 
     setIsGeneratingLesson(true);
     setGenerationError(null);
+    pushMessage({ role: "user", content: trimmedProblem });
 
     try {
       const response = await fetch("/api/lesson", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ problemText: trimmedProblem }),
       });
 
-      const payload = (await response.json()) as {
-        error?: string;
-      };
+      const payload = (await response.json()) as { error?: string };
 
       if (!response.ok) {
         throw new Error(payload.error ?? "Lesson generation failed.");
       }
 
-      const lessonPlan = lessonPlanSchema.parse(payload);
-      setLessonPlan(lessonPlan);
+      const plan = lessonPlanSchema.parse(payload);
+      setLessonPlan(plan);
+      pushMessage({
+        role: "ai",
+        content: `Lesson ready: "${plan.title}" — ${plan.steps.length} steps. Follow along on the board.`,
+      });
     } catch (error) {
-      setGenerationError(
-        error instanceof Error
-          ? error.message
-          : "Lesson generation failed.",
-      );
+      const msg =
+        error instanceof Error ? error.message : "Lesson generation failed.";
+      setGenerationError(msg);
+      pushMessage({ role: "ai", content: `Error: ${msg}` });
     } finally {
       setIsGeneratingLesson(false);
     }
@@ -101,14 +452,12 @@ export function WhiteboardTutorShell() {
     try {
       const form = new FormData();
       form.append("image", file);
-      const res = await fetch("/api/extract", {
-        method: "POST",
-        body: form,
-      });
+      const res = await fetch("/api/extract", { method: "POST", body: form });
       const payload = (await res.json()) as {
         problemText?: string;
         error?: string;
       };
+
       if (payload.error === "not_math") {
         setExtractError("No math detected in that image. Try another photo.");
         return;
@@ -116,6 +465,7 @@ export function WhiteboardTutorShell() {
       if (!res.ok || !payload.problemText) {
         throw new Error(payload.error ?? "Extraction failed.");
       }
+
       setProblemInput(payload.problemText);
       await handleGenerateLesson(payload.problemText);
     } catch (err) {
@@ -128,260 +478,68 @@ export function WhiteboardTutorShell() {
     }
   }
 
+  function handleNew() {
+    setProblemInput("");
+    setGenerationError(null);
+    setExtractError(null);
+    setMessages([]);
+    resetLessonPlayback();
+  }
+
+  const combinedError = generationError ?? extractError;
+
   return (
-    <main className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(14,165,233,0.18),_transparent_30%),linear-gradient(180deg,_#0f172a_0%,_#111827_42%,_#020617_100%)] text-white">
-      <div className="mx-auto flex min-h-screen w-full max-w-[1600px] flex-col px-4 py-4 sm:px-6 lg:px-8">
-        <header className="mb-4 rounded-[28px] border border-white/10 bg-white/5 px-6 py-5 backdrop-blur">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-            <div>
-              <p className="text-sm font-medium uppercase tracking-[0.22em] text-sky-300">
-                Hackathon MVP Foundation
-              </p>
-              <h1 className="mt-2 text-3xl font-semibold tracking-tight text-white sm:text-4xl">
-                AI Whiteboard Tutor
-              </h1>
-              <p className="mt-2 max-w-3xl text-sm text-zinc-300 sm:text-base">
-                Bootstrap layer for typed input, lesson state, a live whiteboard
-                surface, and future-ready hooks for perception, reasoning, and
-                audio.
-              </p>
-            </div>
+    <div
+      className="flex h-screen flex-col overflow-hidden"
+      style={{
+        backgroundColor: "#fffaf5",
+        backgroundImage: "radial-gradient(circle, #e8dbd0 1px, transparent 1px)",
+        backgroundSize: "24px 24px",
+      }}
+    >
+      <Navbar onNew={handleNew} onReset={resetLessonPlayback} />
 
-            <div className="flex flex-wrap gap-2">
-              <StatusPill label="Mode" value={appMode} />
-              <StatusPill label="Recording" value={recordingState} />
-              <StatusPill label="Narration" value={narrationState} />
-              <StatusPill
-                label="Step"
-                value={
-                  totalSteps > 0 ? `${currentStepIndex + 1} / ${totalSteps}` : "0 / 0"
-                }
-              />
-            </div>
-          </div>
-        </header>
+      <div className="flex min-h-0 flex-1 gap-4 p-5">
 
-        <div className="grid flex-1 gap-4 lg:grid-cols-[320px_minmax(0,1fr)_340px]">
-          <aside className="rounded-[28px] border border-white/10 bg-white/5 p-5 backdrop-blur">
-            <div className="flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-white">Problem input</h2>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={loadMockLesson}
-                  className="rounded-full border border-sky-400/40 bg-sky-400/10 px-3 py-1 text-xs font-medium text-sky-200 transition hover:border-sky-300 hover:bg-sky-400/20"
-                >
-                  Load mock lesson
-                </button>
-              </div>
-            </div>
-
-            <p className="mt-2 text-sm text-zinc-300">
-              This panel is the eventual entry point for typed questions, image
-              uploads, and model-triggering controls.
-            </p>
-
-            <label className="mt-5 block text-sm font-medium text-zinc-200">
-              Typed problem
-            </label>
-            <textarea
-              value={problemInput}
-              onChange={(event) => setProblemInput(event.target.value)}
-              placeholder="Type a math problem... e.g. 2x + 3 = 11 or d/dx of x^2 + 3x"
-              className="mt-2 min-h-40 w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white outline-none transition placeholder:text-zinc-500 focus:border-sky-400"
+        {/* Board — primary writing surface */}
+        <div className={`flex min-w-0 flex-1 flex-col ${card}`}>
+          <BoardHeader
+            lessonTitle={lessonPlan?.title ?? null}
+            currentStepIndex={currentStepIndex}
+            totalSteps={totalSteps}
+          />
+          <div className="min-h-0 flex-1">
+            <WhiteboardCanvas
+              lessonPlan={lessonPlan}
+              currentStepIndex={currentStepIndex}
+              renderRevision={renderRevision}
             />
+          </div>
+        </div>
 
-            <div className="mt-4 flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={() => handleGenerateLesson()}
-                disabled={isGeneratingLesson}
-                className="rounded-2xl border border-sky-300 bg-sky-300/15 px-4 py-2 text-sm font-medium text-sky-100 transition hover:bg-sky-300/25 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {isGeneratingLesson ? "Generating lesson..." : "Generate Lesson"}
-              </button>
-            </div>
-
-            <div className="mt-3">
-              <label className="block text-sm font-medium text-zinc-200">
-                Or upload a photo of a problem
-              </label>
-              <input
-                ref={photoInputRef}
-                type="file"
-                accept="image/*"
-                capture="environment"
-                onChange={handlePhotoUpload}
-                disabled={isExtracting || isGeneratingLesson}
-                className="mt-2 block w-full text-sm text-zinc-300 file:mr-3 file:rounded-full file:border-0 file:bg-sky-400/15 file:px-4 file:py-1.5 file:text-sky-100 hover:file:bg-sky-400/25 disabled:opacity-60"
-              />
-              {isExtracting ? (
-                <p className="mt-2 text-xs text-sky-200">
-                  Extracting problem from image...
-                </p>
-              ) : null}
-              {extractError ? (
-                <p className="mt-2 text-xs text-rose-200">{extractError}</p>
-              ) : null}
-            </div>
-
-            {generationError ? (
-              <div className="mt-4 rounded-2xl border border-rose-400/25 bg-rose-400/10 px-4 py-3 text-sm text-rose-100">
-                {generationError}
-              </div>
-            ) : null}
-
-            <div className="mt-5">
-              <p className="text-sm font-medium text-zinc-200">Session mode</p>
-              <div className="mt-2 grid grid-cols-2 gap-2">
-                {(["lesson", "follow-up"] as const).map((mode) => (
-                  <button
-                    key={mode}
-                    type="button"
-                    onClick={() => setAppMode(mode)}
-                    className={`rounded-2xl border px-3 py-2 text-sm font-medium transition ${
-                      appMode === mode
-                        ? "border-sky-300 bg-sky-300/15 text-sky-100"
-                        : "border-white/10 bg-white/5 text-zinc-300 hover:bg-white/10"
-                    }`}
-                  >
-                    {mode === "lesson" ? "Main lesson" : "Follow-up"}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="mt-5 rounded-3xl border border-emerald-400/20 bg-emerald-400/10 p-4 text-sm text-emerald-100">
-              <p className="font-semibold">Lesson generation path</p>
-              <p className="mt-1 text-emerald-50/90">
-                Typed input now drives lesson generation. Image extraction,
-                narration, and interruption handling will plug into this same
-                lesson state without replacing the current playback system.
-              </p>
-            </div>
-          </aside>
-
-          <section className="flex min-h-[60vh] flex-col rounded-[28px] border border-white/10 bg-slate-100/95 p-3 text-zinc-900 shadow-2xl shadow-sky-950/20">
-            <div className="mb-3 flex flex-wrap items-center justify-between gap-3 px-2 pt-1">
-              <div>
-                <p className="text-sm font-medium uppercase tracking-[0.18em] text-sky-700">
-                  Whiteboard
-                </p>
-                <h2 className="text-lg font-semibold text-slate-900">
-                  {lessonPlan?.title ?? "No lesson loaded"}
-                </h2>
-              </div>
-              <div className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs text-slate-600">
-                Whiteboard renderer bridge active
-              </div>
-            </div>
-
-            <div className="min-h-0 flex-1">
-              <WhiteboardCanvas
-                lessonPlan={lessonPlan}
-                currentStepIndex={currentStepIndex}
-                renderRevision={renderRevision}
-              />
-            </div>
-          </section>
-
-          <aside className="rounded-[28px] border border-white/10 bg-white/5 p-5 backdrop-blur">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <h2 className="text-lg font-semibold text-white">
-                  Lesson + transcript
-                </h2>
-                <p className="mt-2 text-sm text-zinc-300">
-                  Mock lesson content is live now. Transcript space is reserved
-                  for future Deepgram events and interruption-aware follow-ups.
-                </p>
-              </div>
-            </div>
-
-            <div className="mt-5 rounded-3xl border border-white/10 bg-black/20 p-4">
-              <p className="text-xs uppercase tracking-[0.22em] text-zinc-400">
-                Current step
-              </p>
-              <p className="mt-2 text-sm font-medium text-sky-200">
-                Step {totalSteps > 0 ? currentStepIndex + 1 : 0} of {totalSteps}
-              </p>
-              <h3 className="mt-2 text-lg font-semibold text-white">
-                {currentStep?.title ?? "No step selected"}
-              </h3>
-              <p className="mt-3 text-xs uppercase tracking-[0.22em] text-zinc-500">
-                Narration
-              </p>
-              <p className="mt-2 text-sm leading-6 text-zinc-300">
-                {currentStep?.narration ?? "Load a lesson to begin."}
-              </p>
-
-              <div className="mt-4 flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={previousStep}
-                  className="rounded-2xl border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-zinc-200 transition hover:bg-white/10"
-                >
-                  Previous
-                </button>
-                <button
-                  type="button"
-                  onClick={nextStep}
-                  className="rounded-2xl border border-sky-400/40 bg-sky-400/15 px-4 py-2 text-sm font-medium text-sky-100 transition hover:bg-sky-400/25"
-                >
-                  Next
-                </button>
-                <button
-                  type="button"
-                  onClick={resetLessonPlayback}
-                  className="rounded-2xl border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-zinc-200 transition hover:bg-white/10"
-                >
-                  Reset to step 1
-                </button>
-                <button
-                  type="button"
-                  onClick={replayCurrentStep}
-                  className="rounded-2xl border border-emerald-400/40 bg-emerald-400/15 px-4 py-2 text-sm font-medium text-emerald-100 transition hover:bg-emerald-400/25"
-                >
-                  Replay render
-                </button>
-              </div>
-            </div>
-
-            <div className="mt-5 space-y-3">
-              {lessonPlan?.steps.map((step, index) => {
-                const isActive = index === currentStepIndex;
-                return (
-                  <div
-                    key={step.id}
-                    className={`rounded-3xl border p-4 transition ${
-                      isActive
-                        ? "border-sky-300/60 bg-sky-400/10"
-                        : "border-white/10 bg-white/5"
-                    }`}
-                  >
-                    <p className="text-xs uppercase tracking-[0.2em] text-zinc-400">
-                      Step {index + 1}
-                    </p>
-                    <p className="mt-1 font-medium text-white">{step.title}</p>
-                    <p className="mt-2 text-sm leading-6 text-zinc-300">
-                      {step.narration}
-                    </p>
-                  </div>
-                );
-              })}
-            </div>
-
-            <div className="mt-5 rounded-3xl border border-amber-300/20 bg-amber-300/10 p-4 text-sm text-amber-50">
-              <p className="font-semibold">Transcript placeholder</p>
-              <p className="mt-1 text-amber-50/90">
-                Future live transcription will append utterances here, flag
-                interruptions, and switch the app from main lesson mode into
-                follow-up mode when needed.
-              </p>
-            </div>
-          </aside>
+        {/* Chat — side companion */}
+        <div className="w-[380px] shrink-0">
+          <ChatPanel
+            messages={messages}
+            inputValue={problemInput}
+            onInputChange={setProblemInput}
+            onSend={() => handleGenerateLesson()}
+            onPhotoUpload={handlePhotoUpload}
+            isLoading={isGeneratingLesson}
+            isExtracting={isExtracting}
+            error={combinedError}
+            photoInputRef={photoInputRef}
+            lessonPlan={lessonPlan}
+            currentStepIndex={currentStepIndex}
+            totalSteps={totalSteps}
+            onPrevious={previousStep}
+            onNext={nextStep}
+            onResetPlayback={resetLessonPlayback}
+            onReplay={replayCurrentStep}
+            onLoadMock={loadMockLesson}
+          />
         </div>
       </div>
-    </main>
+    </div>
   );
 }

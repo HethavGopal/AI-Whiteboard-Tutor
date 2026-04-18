@@ -1,15 +1,37 @@
 @import "tailwindcss";
 
+/* ── Boardly design tokens ─────────────────────────────────────────────── */
 :root {
-  --background: #020617;
-  --foreground: #f8fafc;
+  --background:     #fffaf5;
+  --foreground:     #2f241f;
+
+  --brand:          #ff914d;
+  --brand-deep:     #ff7a2f;
+  --brand-wash:     #fff1e8;
+  --brand-tint:     #fff7f1;
+
+  --surface:        #ffffff;
+  --surface-soft:   #fff7f1;
+
+  --border:         #eadfd6;
+
+  --text-primary:   #2f241f;
+  --text-secondary: #6f625b;
+  --text-muted:     #9b8f87;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-background:    var(--background);
+  --color-foreground:    var(--foreground);
+  --color-brand:         var(--brand);
+  --color-brand-deep:    var(--brand-deep);
+  --color-brand-wash:    var(--brand-wash);
+  --color-brand-tint:    var(--brand-tint);
+  --color-surface:       var(--surface);
+  --color-surface-soft:  var(--surface-soft);
+  --color-border-warm:   var(--border);
+  --font-sans:           var(--font-geist-sans);
+  --font-mono:           var(--font-geist-mono);
 }
 
 html,
@@ -33,5 +55,5 @@ textarea {
 }
 
 ::selection {
-  background: rgba(56, 189, 248, 0.35);
+  background: rgba(255, 145, 77, 0.28);
 }

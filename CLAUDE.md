@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project status
 
-Hackathon MVP. The typed-problem → K2 lesson → tldraw playback path is wired end-to-end with a mock-lesson fallback. Image upload → problem extraction is live via [app/api/extract/route.ts](app/api/extract/route.ts) (Gemini 2.0 Flash). TTS narration is live via [app/api/tts/route.ts](app/api/tts/route.ts) (ElevenLabs Flash v2.5) and drives step advancement through [lib/use-step-narration.ts](lib/use-step-narration.ts) — `audio.ended` is the clock. Live transcription (STT) is still out of MVP scope. The `notReady` service stubs in [lib/tutor-core.ts](lib/tutor-core.ts) are vestigial — the real integrations live in the API routes and hook instead.
+Hackathon MVP. The typed-problem → OpenAI lesson → tldraw playback path is wired end-to-end with a mock-lesson fallback. Image upload → problem extraction is live via [app/api/extract/route.ts](app/api/extract/route.ts) (Gemini 2.0 Flash). TTS narration is live via [app/api/tts/route.ts](app/api/tts/route.ts) (ElevenLabs Flash v2.5) and drives step advancement through [lib/use-step-narration.ts](lib/use-step-narration.ts) — `audio.ended` is the clock. Live transcription (STT) is still out of MVP scope. The `notReady` service stubs in [lib/tutor-core.ts](lib/tutor-core.ts) are vestigial — the real integrations live in the API routes and hook instead.
 
 **This is Next.js 15 / React 19** — APIs and conventions differ from older training data. When unsure about Next.js behavior, consult `node_modules/next/dist/docs/`. The dev server runs with Turbopack (`next.config.ts`).
 
@@ -23,14 +23,12 @@ No test runner is configured. The `scripts/` directory referenced in the PRD (`s
 Currently consumed by the code:
 
 ```
-K2_THINK_API_KEY       # required — bearer for K2 endpoint
-K2_THINK_BASE_URL      # optional — defaults to https://openrouter.ai/api/v1
-K2_THINK_MODEL         # optional — defaults to MBZUAI-IFM/K2-Think-v2
+OPENAI_API_KEY         # required — bearer for OpenAI chat/completions
+OPENAI_MODEL           # optional — defaults to gpt-4o
+OPENAI_BASE_URL        # optional — defaults to https://api.openai.com/v1
 ELEVENLABS_API_KEY     # required for /api/tts — ElevenLabs Flash v2.5 narration
 GEMINI_API_KEY         # required for /api/extract — Gemini 2.0 Flash image→problem extraction
 ```
-
-[lib/k2-lesson-service.ts:186](lib/k2-lesson-service.ts#L186) guards against the common misconfiguration of pointing `K2_THINK_BASE_URL` at OpenRouter while using an IFM-prefixed key — preserve that check.
 
 `DEEPGRAM_API_KEY` and `FALLBACK_LLM_KEY` from the PRD are still not consumed (STT / fallback LLM are out of MVP scope). Add them alongside the code that needs them, not speculatively.
 
@@ -41,8 +39,8 @@ GEMINI_API_KEY         # required for /api/extract — Gemini 2.0 Flash image→
 ```
 User types problem (or uploads a photo → /api/extract → problemText) in WhiteboardTutorShell
   → POST /api/lesson  { problemText }
-  → generateLessonWithK2  (OpenAI-compatible chat/completions call)
-  → extractJsonObject strips <think>…</think> and ``` fences, grabs last balanced {…}
+  → generateLesson  (OpenAI chat/completions with response_format: json_object)
+  → JSON.parse on the guaranteed-JSON response content
   → lessonPlanSchema.parse  (Zod validates shape)
   → setLessonPlan in Zustand store bumps renderRevision
   → WhiteboardCanvas effect runs playLessonToBoard, animating step N's drawActions
@@ -58,14 +56,14 @@ No SSE or streaming yet; `/api/lesson` returns the full plan in one JSON payload
 |---|---|
 | [lib/tutor-core.ts](lib/tutor-core.ts) | Zod schemas (`drawActionSchema`, `stepSchema`, `lessonPlanSchema`), inferred types, the `mockLessonPlan` seed, and service interfaces (`GeminiVisionService`, `ElevenLabsNarrationService`, `DeepgramTranscriptionService`) whose implementations currently throw `notReady`. |
 | [lib/tutor-store.ts](lib/tutor-store.ts) | Zustand store: `problemInput`, `lessonPlan`, `currentStepIndex`, `renderRevision`, `appMode`, `recordingState`, `narrationState`, step-nav actions. |
-| [lib/k2-lesson-service.ts](lib/k2-lesson-service.ts) | K2 Think client. Builds the JSON-only prompt, calls chat/completions, extracts JSON from reasoning output, validates with Zod. |
+| [lib/openai-lesson-service.ts](lib/openai-lesson-service.ts) | OpenAI client. Builds the JSON-only prompt, calls chat/completions with `response_format: json_object`, validates with Zod. |
 | [lib/whiteboard-renderer.ts](lib/whiteboard-renderer.ts) | tldraw bridge. Translates `DrawAction`s into tldraw shape creates/deletes. `playLessonToBoard` is the animated player; `renderLessonToBoard` is the instant variant. Maintains a `LabelMap: semanticLabel → TLShapeId[]` so later actions (highlight/arrow/erase) can reference earlier shapes by name. |
 | [components/whiteboard-canvas.tsx](components/whiteboard-canvas.tsx) | Mounts `<Tldraw>`, captures the `Editor` ref, re-runs `playLessonToBoard` whenever `currentStepIndex` or `renderRevision` changes. Exposes an optional `onStepPlaybackComplete` draw-end callback, but the shell no longer passes it — `useStepNarration` drives advancement via `audio.ended` instead. |
 | [app/api/tts/route.ts](app/api/tts/route.ts) | POST `{ text, voiceId? }` → `audio/mpeg` via ElevenLabs Flash v2.5. Module-scoped sha1-keyed cache; `runtime = "nodejs"`. |
 | [app/api/extract/route.ts](app/api/extract/route.ts) | POST multipart `image` → `{ problemText }` or `{ error: "not_math" }` via Gemini 2.0 Flash with `responseSchema`. |
 | [lib/use-step-narration.ts](lib/use-step-narration.ts) | Client hook. Fetches `/api/tts` for the current step, plays audio, calls `nextStep()` on `audio.ended`. Owns the step clock. |
 | [components/whiteboard-tutor-shell.tsx](components/whiteboard-tutor-shell.tsx) | Three-pane UI: input panel, whiteboard, step/transcript panel. Calls `/api/lesson`. |
-| [app/api/lesson/route.ts](app/api/lesson/route.ts) | Single POST handler. Validates body, calls `generateLessonWithK2`, returns JSON. Not streaming. |
+| [app/api/lesson/route.ts](app/api/lesson/route.ts) | Single POST handler. Validates body, calls `generateLesson`, returns JSON. Not streaming. |
 | [app/page.tsx](app/page.tsx), [app/layout.tsx](app/layout.tsx) | Minimal App Router shell. |
 
 ### DrawAction model
@@ -89,9 +87,9 @@ The polynomial evaluator lives in [lib/poly-math.ts](lib/poly-math.ts) (`parsePo
 
 **Composite actions that emit multiple shapes** (e.g. a hypothetical `axes` action emitting axis lines + ticks + axis-label texts) must keep shape IDs and LabelMap keys decoupled: derive a unique tldraw ID per sub-shape (e.g. `createShapeId(\`${semanticLabel}__xtick_${i}\`)`), but append *all* of those IDs into `labelMap[semanticLabel]` via `appendLabel` so a single `erase` on the action's `semanticLabel` clears the whole group. Don't try to re-use one `semanticLabel` as-is across multiple `createShapes` calls — the second call will silently drop on ID collision.
 
-Coordinates are tldraw page coords. The K2 prompt currently constrains x∈[120, 560], y∈[80, 340] to stay inside a sensible frame — if you widen that range, update the prompt in [lib/k2-lesson-service.ts:81-86](lib/k2-lesson-service.ts#L81-L86) too.
+Coordinates are tldraw page coords. The prompt constrains x∈[120, 560], y∈[60, 500]. If you widen that range, update the prompt in [lib/openai-lesson-service.ts](lib/openai-lesson-service.ts) too (the "SPACING RULES" block and coordinate constraints section).
 
-**Derivative lesson layout convention (wipe-and-draw):** the K2 prompt splits derivative lessons into two phases. Phase 1 (steps 1-4) stacks symbolic narration text on the left column at fixed y-coordinates (80, 115, 160, 205+, 295). Phase 2 (step 5) begins with an `erase` action targeting every Phase-1 label, then draws axes + curve + tangents on the full canvas. This prevents narration text and graph shapes from ever occupying the same space. If you add more calculus problem types, follow the same two-phase erase pattern.
+**Derivative lesson layout convention (wipe-and-draw):** the prompt splits derivative lessons into two phases. Phase 1 (steps 1-4) stacks symbolic narration text on the left column at fixed y-coordinates (80, 125, 175, 225+45×i, 360) with 45px spacing. Phase 2 (step 5) begins with an `erase` action targeting every Phase-1 label, then draws axes + curve + tangents on the full canvas. This prevents narration text and graph shapes from ever occupying the same space. If you add more calculus problem types, follow the same two-phase erase pattern.
 
 ### Re-render model
 
@@ -99,19 +97,19 @@ Every mutation that should repaint the board bumps `renderRevision` in the store
 
 The effect creates an `AbortController` and aborts on unmount/change; long delays in `playLessonToBoard` honor the signal via `wait(ms, signal)`. Preserve that when editing the player.
 
-### K2 response parsing
+### OpenAI response parsing
 
-K2-Think v2 emits reasoning inside `<think>…</think>` plus occasional markdown fences. `extractJsonObject` handles both: drop everything up to the last `</think>`, try fenced ```json blocks, fall back to the last balanced `{…}` object in the string. When debugging malformed lessons, log the raw `rawContent` *before* `extractJsonObject`, not after.
+`response_format: { type: "json_object" }` is passed on every request, so OpenAI always returns a valid JSON string directly in `choices[0].message.content`. No think-block stripping or fence extraction is needed — the content is fed straight to `JSON.parse`. When debugging malformed lessons, log the raw `rawContent` from the API response before parsing.
 
 ## Constraints worth knowing
 
 - **Subject scope:** high-school algebra (quadratics, linear equations, systems).
 - **Path alias:** `@/*` → repo root. Use it; don't write relative `../../` paths.
 - **Styling:** Tailwind v4 (`@tailwindcss/postcss`). Global styles in [app/globals.css](app/globals.css).
-- **Client boundary:** everything under `components/` is `"use client"` because tldraw and Zustand both require it. API handlers and `lib/k2-lesson-service.ts` must stay server-only (they read `process.env` secrets).
+- **Client boundary:** everything under `components/` is `"use client"` because tldraw and Zustand both require it. API handlers and `lib/openai-lesson-service.ts` must stay server-only (they read `process.env` secrets).
 - **Git remote:** `https://github.com/HethavGopal/AI-Whiteboard-Tutor`.
 
 ## When extending
 
-- Adding a new `DrawAction` variant: update the Zod union in [lib/tutor-core.ts](lib/tutor-core.ts), add a handler in the `applyAction` switch in [lib/whiteboard-renderer.ts](lib/whiteboard-renderer.ts), and document it in the K2 prompt's "Allowed draw action types" section. Miss any of the three and you get validation errors, silent drops, or hallucinated actions.
+- Adding a new `DrawAction` variant: update the Zod union in [lib/tutor-core.ts](lib/tutor-core.ts), add a handler in the `applyAction` switch in [lib/whiteboard-renderer.ts](lib/whiteboard-renderer.ts), and document it in the prompt's "Allowed draw action types" section in [lib/openai-lesson-service.ts](lib/openai-lesson-service.ts). Miss any of the three and you get validation errors, silent drops, or hallucinated actions.
 - Wiring up vision/TTS/STT: the interfaces in `tutor-core.ts` are the contract. Replace each `notReady` stub with a real implementation rather than introducing a parallel module.
