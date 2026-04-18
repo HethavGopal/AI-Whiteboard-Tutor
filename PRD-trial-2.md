@@ -84,7 +84,7 @@ A student uploads a photo of a single algebra problem, receives a 30–90 second
 | ID | Requirement |
 |---|---|
 | FR-1.1 | File upload (image: JPG/PNG, ≤10MB). Camera capture via native `<input capture>` on mobile. |
-| FR-1.2 | Claude Sonnet 4.6 vision extracts problem → `{problem_type, latex, given, find}` |
+| FR-1.2 | **Gemini 2.5 Flash** vision extracts problem → `{problem_type, latex, given, find, equation_bbox}` — native multimodal; bbox included for tldraw shape placement |
 | FR-1.3 | Reject non-math images with friendly message + example photos |
 | FR-1.4 | **Demo cache lookup:** extracted LaTeX is normalized and hashed; if match found in `/public/demo-cache/`, use cached plan instead of live generation (see §6.5) |
 
@@ -168,25 +168,28 @@ A student uploads a photo of a single algebra problem, receives a 30–90 second
                ▼
 ┌─────────────────────────────────────────────┐
 │  Next.js API routes (serverless, Vercel)    │
-│  /api/lesson   — vision + plan (SSE JSONL)  │
+│  /api/lesson   — Gemini vision → K2 plan (SSE JSONL) │
 │  /api/branch   — interruption → branch plan │
 │  /api/tts      — ElevenLabs proxy (cached)  │
 │  /api/stt      — Deepgram websocket proxy   │
 └────┬───────────┬────────────┬───────────────┘
-     ▼           ▼            ▼
-  Claude 4.6   ElevenLabs   Deepgram
-  Sonnet       Flash v2.5   Nova-3
+     ▼           ▼            ▼           ▼
+  Gemini      K2 Think    ElevenLabs   Deepgram
+  2.5 Flash   V2 (Cerebras) Flash v2.5  Nova-3
+  (vision)    (reasoning)
+     │
+     └── Claude Sonnet 4.6 (fallback if either sponsor endpoint drops)
 ```
 
 **Deliberately removed from v1:** separate Bun/Hono backend, WebSocket transport, 60fps custom render loop, audio-as-master-clock sync engine, `plans_stack`, recursive interruption.
 
 **Required env vars:**
 ```
-VISION_API_KEY=         # Anthropic key — Claude Sonnet 4.6, vision step only
-K2_THINK_API_KEY=       # Sponsor key — K2 Think V2, all reasoning/plan calls
+GEMINI_API_KEY=         # Sponsor key — Gemini 2.5 Flash, vision extraction only
+K2_THINK_API_KEY=       # Sponsor key — K2 Think V2, all reasoning/plan/routing calls
 ELEVENLABS_API_KEY=     # TTS
 DEEPGRAM_API_KEY=       # STT
-FALLBACK_LLM_KEY=       # Anthropic key (can reuse VISION_API_KEY) — swap if K2 endpoint drops
+ANTHROPIC_API_KEY=      # Claude Sonnet 4.6 — fallback if either sponsor endpoint drops
 ```
 
 ### 6.2 The Buy-vs-Build Call: Why tldraw
@@ -262,7 +265,7 @@ No bbox math. No serialization acrobatics. The LLM sees exactly what a human tut
 4. Miss → live pipeline (slower, but still works).
 
 **Interruption matching:**
-1. STT transcript → normalize → semantic hash (tiny prompt to Claude Haiku: *"match this question to one of: [list]; return index or null"*, ~200ms).
+1. STT transcript → normalize → semantic hash (tiny prompt to **K2 Think**: *"match this question to one of: [list]; return index or null"*, ~200ms at Cerebras speed).
 2. Hit → cached branch. Miss → live branch call.
 
 **Why this is not cheating:** every production system has a warm path / CDN cache. The live path is fully functional; we just weight the demo toward the well-lit alley. If a judge asks *"is this real?"* — show them a fourth, uncached problem. The live path works. It just takes 3 seconds instead of 500ms.
@@ -275,9 +278,10 @@ No bbox math. No serialization acrobatics. The LLM sees exactly what a human tut
 | Whiteboard | **tldraw** | Saves 15+ hours; better-looking than hand-roll |
 | State | Zustand | Minimal boilerplate |
 | LaTeX | KaTeX → SVG → tldraw shape | Synchronous, zero network |
-| Vision LLM | Claude Sonnet 4.6 (vision step only) | Only VLM needed; one small call per upload |
+| Vision LLM | **Gemini 2.5 Flash (sponsor API)** | Native multimodal; returns bbox + structured JSON natively; better math OCR than Claude; one call extracts problem + spatial layout |
 | Reasoning LLM | **K2 Think V2 (sponsor API — `MBZUAI-IFM/K2-Think-v2`)** | Math is its specialty; Cerebras backend at ~2000 tok/s means near-instant lesson plan streaming; OpenAI-compatible endpoint (`https://api.k2think.ai/v1/chat/completions`) |
-| Question routing | K2 Think V2 (same key, tiny prompt) | Speed makes Haiku unnecessary; one API key to manage |
+| Question routing | K2 Think V2 (same key, tiny prompt) | Speed makes a separate router unnecessary; one API key to manage |
+| Fallback LLM | Claude Sonnet 4.6 | Full vision + reasoning fallback if either sponsor endpoint drops; one env var swap |
 | TTS | ElevenLabs Flash v2.5 | <400ms first byte |
 | STT | Deepgram Nova-3 streaming | Sub-300ms partial transcripts |
 | Transport | HTTPS + SSE | Survives corporate/venue proxies; no reconnection logic |
@@ -315,7 +319,7 @@ Milestone gates: each block must be demoable before proceeding. If a block slips
 
 | Hours | Phase | Deliverable (must be working, not polished) |
 |---|---|---|
-| **0–8** | **Skeleton** | tldraw shell, photo upload, Claude vision → LaTeX extraction, K2 Think → lesson plan JSON via SSE, sequential step playback with live ElevenLabs TTS. Non-interruptible. End-to-end happy path on one problem. **Spike first:** confirm K2 Think streams clean JSONL (no raw `<think>` bleed-through) before building downstream logic. |
+| **0–8** | **Skeleton** | tldraw shell, photo upload, **Gemini vision → LaTeX + bbox**, K2 Think → lesson plan JSON via SSE, sequential step playback with live ElevenLabs TTS. Non-interruptible. End-to-end happy path on one problem. **Spike first (hour 0–1):** (a) confirm Gemini returns clean structured JSON from a test photo; (b) confirm K2 Think streams JSONL without `<think>` bleed-through. Both must pass before building downstream. |
 | **8–16** | **Interruption** | PTT mic, Deepgram streaming, `/api/branch` endpoint, highlight-existing-shape draw op, one-level interruption flow, "continue?" resume. |
 | **16–24** | **Demo Cache** | Cache manifest, 3 problems × 3 questions pre-baked, client-side fuzzy match, K2 Think-based question router (single tiny prompt). Cached path indistinguishable from live path visually. |
 | **24–32** | **Polish** | Fonts, colors, transitions, mic-button feel, loading states, non-math photo rejection UI, captions toggle. Mobile-first QA on actual phone. |
@@ -329,13 +333,13 @@ Milestone gates: each block must be demoable before proceeding. If a block slips
 | Risk | Likelihood | Impact | Mitigation |
 |---|---|---|---|
 | Venue Wi-Fi unreliable | High | Fatal | Demo cache (§6.5) + backup video (§8 Freeze) |
-| Vision model misreads photo | Medium | High | Curated demo photos with good lighting; fallback "confirm the problem" UI step |
+| Gemini misreads photo | Medium | High | Curated demo photos with good lighting; Gemini's bbox output lets us show a "confirm this problem?" UI step before generating the plan |
 | ElevenLabs rate-limit or outage | Low | Fatal on live path | Cached MP3s on demo path make this irrelevant for the pitch |
 | tldraw API friction (undocumented edge case) | Medium | Medium | Budget 2h spike in Phase 1; Excalidraw is the swap |
 | Audio/draw desync on slow phone | Low | Medium | Sequential sync model (§6.3) makes this structurally impossible |
 | Judge asks unanticipated interruption question | High | Low | Live branch path works; K2 Think speed means ~1–2s latency is likely |
 | K2 Think streams `<think>` traces into JSON output | Medium | High | Strip reasoning traces in SSE parser before passing to app; test in hour 0–1 spike |
-| K2 Think sponsor endpoint rate-limit or downtime | Low | High | Keep Claude Sonnet 4.6 key in `FALLBACK_LLM_KEY` env var; one-line swap in API route |
+| Either sponsor endpoint (Gemini or K2) drops | Low | High | `ANTHROPIC_API_KEY` in env — Claude Sonnet 4.6 handles both vision and reasoning as a full fallback; one-line swap per API route |
 | Team member sleeps through Saturday | Medium | High | Pair schedule; no solo phases after hour 24 |
 
 ---
