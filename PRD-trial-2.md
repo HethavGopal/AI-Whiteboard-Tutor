@@ -180,6 +180,15 @@ A student uploads a photo of a single algebra problem, receives a 30–90 second
 
 **Deliberately removed from v1:** separate Bun/Hono backend, WebSocket transport, 60fps custom render loop, audio-as-master-clock sync engine, `plans_stack`, recursive interruption.
 
+**Required env vars:**
+```
+VISION_API_KEY=         # Anthropic key — Claude Sonnet 4.6, vision step only
+K2_THINK_API_KEY=       # Sponsor key — K2 Think V2, all reasoning/plan calls
+ELEVENLABS_API_KEY=     # TTS
+DEEPGRAM_API_KEY=       # STT
+FALLBACK_LLM_KEY=       # Anthropic key (can reuse VISION_API_KEY) — swap if K2 endpoint drops
+```
+
 ### 6.2 The Buy-vs-Build Call: Why tldraw
 
 v1 proposed Konva.js or raw SVG + Framer Motion + hand-rolled `stroke-dasharray`. That path is a 12–18 hour swamp of coordinate math, z-indexing, and stroke-extraction bugs that would leave us with a 3am Saturday whiteboard that looks like a ransom note.
@@ -266,7 +275,9 @@ No bbox math. No serialization acrobatics. The LLM sees exactly what a human tut
 | Whiteboard | **tldraw** | Saves 15+ hours; better-looking than hand-roll |
 | State | Zustand | Minimal boilerplate |
 | LaTeX | KaTeX → SVG → tldraw shape | Synchronous, zero network |
-| LLM | Claude Sonnet 4.6 (vision + reasoning) + Haiku 4.5 (question-matching) | Best structured output; Haiku for <300ms cache routing |
+| Vision LLM | Claude Sonnet 4.6 (vision step only) | Only VLM needed; one small call per upload |
+| Reasoning LLM | **K2 Think V2 (sponsor API — `MBZUAI-IFM/K2-Think-v2`)** | Math is its specialty; Cerebras backend at ~2000 tok/s means near-instant lesson plan streaming; OpenAI-compatible endpoint (`https://api.k2think.ai/v1/chat/completions`) |
+| Question routing | K2 Think V2 (same key, tiny prompt) | Speed makes Haiku unnecessary; one API key to manage |
 | TTS | ElevenLabs Flash v2.5 | <400ms first byte |
 | STT | Deepgram Nova-3 streaming | Sub-300ms partial transcripts |
 | Transport | HTTPS + SSE | Survives corporate/venue proxies; no reconnection logic |
@@ -304,9 +315,9 @@ Milestone gates: each block must be demoable before proceeding. If a block slips
 
 | Hours | Phase | Deliverable (must be working, not polished) |
 |---|---|---|
-| **0–8** | **Skeleton** | tldraw shell, photo upload, Claude vision → lesson plan JSON, sequential step playback with live ElevenLabs TTS. Non-interruptible. End-to-end happy path on one problem. |
+| **0–8** | **Skeleton** | tldraw shell, photo upload, Claude vision → LaTeX extraction, K2 Think → lesson plan JSON via SSE, sequential step playback with live ElevenLabs TTS. Non-interruptible. End-to-end happy path on one problem. **Spike first:** confirm K2 Think streams clean JSONL (no raw `<think>` bleed-through) before building downstream logic. |
 | **8–16** | **Interruption** | PTT mic, Deepgram streaming, `/api/branch` endpoint, highlight-existing-shape draw op, one-level interruption flow, "continue?" resume. |
-| **16–24** | **Demo Cache** | Cache manifest, 3 problems × 3 questions pre-baked, client-side fuzzy match, Haiku-based question router. Cached path indistinguishable from live path visually. |
+| **16–24** | **Demo Cache** | Cache manifest, 3 problems × 3 questions pre-baked, client-side fuzzy match, K2 Think-based question router (single tiny prompt). Cached path indistinguishable from live path visually. |
 | **24–32** | **Polish** | Fonts, colors, transitions, mic-button feel, loading states, non-math photo rejection UI, captions toggle. Mobile-first QA on actual phone. |
 | **32–42** | **Rehearse** | Run the demo script 20+ times. Fix every bug that surfaces. Add 4th cached backup problem. Confirm every failure mode degrades gracefully. |
 | **42–48** | **Freeze** | Code freeze. Bug fixes only. **Record a backup video** of the full demo running perfectly — if venue Wi-Fi fails, we play the video and talk over it. |
@@ -322,7 +333,9 @@ Milestone gates: each block must be demoable before proceeding. If a block slips
 | ElevenLabs rate-limit or outage | Low | Fatal on live path | Cached MP3s on demo path make this irrelevant for the pitch |
 | tldraw API friction (undocumented edge case) | Medium | Medium | Budget 2h spike in Phase 1; Excalidraw is the swap |
 | Audio/draw desync on slow phone | Low | Medium | Sequential sync model (§6.3) makes this structurally impossible |
-| Judge asks unanticipated interruption question | High | Low | Live branch path works; ~3s latency is acceptable for a 2-min demo |
+| Judge asks unanticipated interruption question | High | Low | Live branch path works; K2 Think speed means ~1–2s latency is likely |
+| K2 Think streams `<think>` traces into JSON output | Medium | High | Strip reasoning traces in SSE parser before passing to app; test in hour 0–1 spike |
+| K2 Think sponsor endpoint rate-limit or downtime | Low | High | Keep Claude Sonnet 4.6 key in `FALLBACK_LLM_KEY` env var; one-line swap in API route |
 | Team member sleeps through Saturday | Medium | High | Pair schedule; no solo phases after hour 24 |
 
 ---
@@ -334,7 +347,7 @@ Milestone gates: each block must be demoable before proceeding. If a block slips
 3. **0:06** — Whiteboard begins rendering the equation in tldraw's hand-drawn style; calm voice begins: *"Let's factor this quadratic..."*
 4. **0:25** — Judge presses-and-holds mic: *"Wait, why did you split the middle term?"*
 5. **0:26** — Audio cuts. Scheduled draw actions freeze.
-6. **0:27** — Haiku routes question → cached branch hit. Red highlight appears on `7x`; voice resumes: *"Great question — we split 7x into 6x and x because their product, 6, equals a times c..."*
+6. **0:27** — K2 Think routes question → cached branch hit. Red highlight appears on `7x`; voice resumes: *"Great question — we split 7x into 6x and x because their product, 6, equals a times c..."*
 7. **0:45** — Branch concludes: *"Want me to continue?"* Judge says *"yes."*
 8. **0:47** — Original explanation resumes from the next step, seamlessly.
 9. **2:00** — Final answer written, circled. Voice: *"So x equals negative three or negative one-half."*
