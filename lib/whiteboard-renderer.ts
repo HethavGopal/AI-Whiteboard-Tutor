@@ -3,7 +3,7 @@ import {
   toRichText,
   type Editor,
   type TLShapeId,
-} from "@tldraw/editor";
+} from "tldraw";
 
 import type { DrawAction, LessonPlan } from "@/lib/tutor-core";
 
@@ -41,6 +41,14 @@ export type WhiteboardPlaybackOptions = {
 
 function appendLabel(labelMap: LabelMap, label: string, shapeIds: TLShapeId[]) {
   labelMap[label] = [...(labelMap[label] ?? []), ...shapeIds];
+}
+
+// Shape ids must stay stable and unique per action. Reusing semantic labels as
+// shape ids can collide across different action types (text, highlight, arrow),
+// which can destabilize tldraw's internal React tree during playback.
+function createBoardShapeId(actionId: string) {
+  const safeId = actionId.trim().replace(/[^a-zA-Z0-9_-]/g, "_") || "shape";
+  return createShapeId(safeId);
 }
 
 function removeLabelTargets(labelMap: LabelMap, labels: string[]) {
@@ -163,9 +171,39 @@ function getBoundsForLabel(editor: Editor, labelMap: LabelMap, label: string) {
   };
 }
 
+function clamp(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), max);
+}
+
+function getConnectorPoint(
+  bounds: NonNullable<ReturnType<typeof getBoundsForLabel>>,
+  targetCenterX: number,
+  targetCenterY: number,
+) {
+  const safeInset = 12;
+  const safeMinX = bounds.x + 12;
+  const safeMaxX = bounds.x + Math.max(bounds.w - 12, 12);
+  const safeMinY = bounds.y + 12;
+  const safeMaxY = bounds.y + Math.max(bounds.h - 12, 12);
+  const deltaX = targetCenterX - bounds.centerX;
+  const deltaY = targetCenterY - bounds.centerY;
+
+  if (Math.abs(deltaY) >= Math.abs(deltaX)) {
+    return {
+      x: clamp(targetCenterX, safeMinX, safeMaxX),
+      y: deltaY >= 0 ? bounds.y + bounds.h + safeInset : bounds.y - safeInset,
+    };
+  }
+
+  return {
+    x: deltaX >= 0 ? bounds.x + bounds.w + safeInset : bounds.x - safeInset,
+    y: clamp(targetCenterY, safeMinY, safeMaxY),
+  };
+}
+
 function createTextShape(action: Extract<DrawAction, { type: "create_shape"; kind: "text" }>): ShapePartial {
   return {
-    id: createShapeId(action.semanticLabel),
+    id: createBoardShapeId(action.id),
     type: "text",
     x: action.x,
     y: action.y,
@@ -189,7 +227,7 @@ function createGeoShape(
   >,
 ): ShapePartial {
   return {
-    id: createShapeId(action.semanticLabel),
+    id: createBoardShapeId(action.id),
     type: "geo",
     x: action.x,
     y: action.y,
@@ -219,7 +257,7 @@ function createGeoShape(
 
 function createLineShape(action: Extract<DrawAction, { type: "create_shape"; kind: "line" }>): ShapePartial {
   return {
-    id: createShapeId(action.semanticLabel),
+    id: createBoardShapeId(action.id),
     type: "line",
     x: action.x1,
     y: action.y1,
@@ -274,7 +312,7 @@ function applyHighlightAction(
   }
 
   const shape: ShapePartial = {
-    id: createShapeId(action.semanticLabel),
+    id: createBoardShapeId(action.id),
     type: "geo",
     x: bounds.x - action.padding,
     y: bounds.y - action.padding,
@@ -321,11 +359,22 @@ function applyArrowAction(
     return;
   }
 
+  const startPoint = getConnectorPoint(
+    fromBounds,
+    toBounds.centerX,
+    toBounds.centerY,
+  );
+  const endPoint = getConnectorPoint(
+    toBounds,
+    fromBounds.centerX,
+    fromBounds.centerY,
+  );
+
   const shape: ShapePartial = {
-    id: createShapeId(action.semanticLabel),
+    id: createBoardShapeId(action.id),
     type: "arrow",
-    x: fromBounds.centerX,
-    y: fromBounds.centerY,
+    x: startPoint.x,
+    y: startPoint.y,
     meta: {
       semanticLabel: action.semanticLabel,
       actionId: action.id,
@@ -344,8 +393,8 @@ function applyArrowAction(
       richText: toRichText(action.text ?? ""),
       start: { x: 0, y: 0 },
       end: {
-        x: toBounds.centerX - fromBounds.centerX,
-        y: toBounds.centerY - fromBounds.centerY,
+        x: endPoint.x - startPoint.x,
+        y: endPoint.y - startPoint.y,
       },
       arrowheadStart: "none",
       arrowheadEnd: "arrow",

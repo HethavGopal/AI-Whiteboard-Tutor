@@ -1,9 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { WhiteboardCanvas } from "@/components/whiteboard-canvas";
-import { lessonPlanSchema } from "@/lib/tutor-core";
+import { lessonSessionSchema, stepSchema, type Step } from "@/lib/tutor-core";
 import { useTutorStore } from "@/lib/tutor-store";
 
 function StatusPill({
@@ -23,6 +23,9 @@ function StatusPill({
 export function WhiteboardTutorShell() {
   const {
     problemInput,
+    lessonOutline,
+    lessonType,
+    generatedStepsByIndex,
     lessonPlan,
     currentStepIndex,
     renderRevision,
@@ -30,7 +33,8 @@ export function WhiteboardTutorShell() {
     recordingState,
     narrationState,
     setProblemInput,
-    setLessonPlan,
+    setLessonSession,
+    setGeneratedStep,
     setAppMode,
     previousStep,
     nextStep,
@@ -40,9 +44,220 @@ export function WhiteboardTutorShell() {
   } = useTutorStore();
   const [isGeneratingLesson, setIsGeneratingLesson] = useState(false);
   const [generationError, setGenerationError] = useState<string | null>(null);
+  const [loadingStepIndexes, setLoadingStepIndexes] = useState<
+    Record<number, boolean>
+  >({});
+  const [stepErrorsByIndex, setStepErrorsByIndex] = useState<
+    Record<number, string>
+  >({});
+  const inFlightStepIndexesRef = useRef<Set<number>>(new Set());
 
-  const currentStep = lessonPlan?.steps[currentStepIndex] ?? null;
-  const totalSteps = lessonPlan?.steps.length ?? 0;
+  const totalSteps =
+    lessonOutline?.outlineSteps.length ?? lessonPlan?.steps.length ?? 0;
+  const resolvedSteps = useMemo(
+    () =>
+      lessonPlan?.steps.map(
+        (step, index) => generatedStepsByIndex[index] ?? step,
+      ) ?? [],
+    [generatedStepsByIndex, lessonPlan],
+  );
+  const currentResolvedStep = resolvedSteps[currentStepIndex] ?? null;
+  const isCurrentStepLoading = Boolean(loadingStepIndexes[currentStepIndex]);
+  const currentStepError = stepErrorsByIndex[currentStepIndex] ?? null;
+  const renderLessonPlan = useMemo(() => {
+    if (!lessonPlan) return null;
+
+    return {
+      ...lessonPlan,
+      steps: lessonPlan.steps.map((step, index) => {
+        if (index < currentStepIndex) {
+          return generatedStepsByIndex[index] ?? step;
+        }
+
+        if (index === currentStepIndex) {
+          if (generatedStepsByIndex[index]) {
+            return generatedStepsByIndex[index];
+          }
+
+          if (loadingStepIndexes[index]) {
+            return {
+              id: `loading_${lessonOutline?.outlineSteps[index]?.id ?? index}`,
+              title:
+                lessonOutline?.outlineSteps[index]?.title ?? step.title,
+              narration: "Generating detailed step...",
+              drawActions: [],
+            };
+          }
+        }
+
+        return step;
+      }),
+    };
+  }, [
+    currentStepIndex,
+    generatedStepsByIndex,
+    lessonOutline,
+    lessonPlan,
+    loadingStepIndexes,
+  ]);
+
+  const currentStepTitle =
+    currentResolvedStep?.title ??
+    lessonOutline?.outlineSteps[currentStepIndex]?.title ??
+    "No step selected";
+  const currentStepNarration = isCurrentStepLoading
+    ? "Generating detailed step..."
+    : currentStepError
+      ? currentStepError
+      : currentResolvedStep?.narration ?? "Load a lesson to begin.";
+
+  const buildPreviousStepSummaries = useCallback(
+    (targetStepIndex: number) =>
+      Object.entries(generatedStepsByIndex)
+        .map(([index, step]) => ({
+          index: Number(index),
+          step,
+        }))
+        .filter(({ index }) => index < targetStepIndex)
+        .sort((left, right) => left.index - right.index)
+        .map(({ index, step }) => ({
+          index,
+          title: step.title,
+          narration: step.narration,
+          labels: step.drawActions.map((action) => action.semanticLabel),
+        })),
+    [generatedStepsByIndex],
+  );
+
+  const loadDetailedStep = useCallback(
+    async (targetStepIndex: number, options?: { prefetch?: boolean }) => {
+      if (!lessonOutline || !lessonPlan) return;
+      if (targetStepIndex < 0 || targetStepIndex >= lessonOutline.outlineSteps.length) {
+        return;
+      }
+      if (generatedStepsByIndex[targetStepIndex]) return;
+      if (inFlightStepIndexesRef.current.has(targetStepIndex)) return;
+
+      inFlightStepIndexesRef.current.add(targetStepIndex);
+      setLoadingStepIndexes((previous) => ({
+        ...previous,
+        [targetStepIndex]: true,
+      }));
+      setStepErrorsByIndex((previous) => {
+        const next = { ...previous };
+        delete next[targetStepIndex];
+        return next;
+      });
+
+      let responseStatus: number | null = null;
+      let responseOk: boolean | null = null;
+      let responseError: string | null = null;
+
+      try {
+        // #region agent log
+        void fetch("http://127.0.0.1:7644/ingest/f39cdcba-cf18-4ba8-931d-27cdc21735e8", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Debug-Session-Id": "f55d98",
+          },
+          body: JSON.stringify({
+            sessionId: "f55d98",
+            runId: "initial",
+            hypothesisId: "A",
+            location: "components/whiteboard-tutor-shell.tsx:153",
+            message: "step load requested",
+            data: {
+              targetStepIndex,
+              currentStepIndex,
+              prefetch: Boolean(options?.prefetch),
+              outlineLength: lessonOutline.outlineSteps.length,
+              generatedCount: Object.keys(generatedStepsByIndex).length,
+              inFlightCount: inFlightStepIndexesRef.current.size,
+            },
+            timestamp: Date.now(),
+          }),
+        }).catch(() => {});
+        // #endregion
+        const response = await fetch("/api/lesson/step", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            problemText: lessonOutline.problemText,
+            lessonType: lessonOutline.lessonType,
+            outlineSteps: lessonOutline.outlineSteps,
+            targetStepIndex,
+            previousSteps: buildPreviousStepSummaries(targetStepIndex),
+          }),
+        });
+        responseStatus = response.status;
+        responseOk = response.ok;
+
+        const payload = (await response.json()) as { error?: string };
+        responseError = payload.error ?? null;
+
+        if (!response.ok) {
+          throw new Error(payload.error ?? "Step generation failed.");
+        }
+
+        const step = stepSchema.parse(payload as Step);
+        setGeneratedStep(targetStepIndex, step);
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : "Step generation failed.";
+
+        // #region agent log
+        void fetch("http://127.0.0.1:7644/ingest/f39cdcba-cf18-4ba8-931d-27cdc21735e8", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Debug-Session-Id": "f55d98",
+          },
+          body: JSON.stringify({
+            sessionId: "f55d98",
+            runId: "initial",
+            hypothesisId: "A",
+            location: "components/whiteboard-tutor-shell.tsx:175",
+            message: "step load failed",
+            data: {
+              targetStepIndex,
+              currentStepIndex,
+              prefetch: Boolean(options?.prefetch),
+              responseStatus,
+              responseOk,
+              responseError,
+              message,
+            },
+            timestamp: Date.now(),
+          }),
+        }).catch(() => {});
+        // #endregion
+
+        setStepErrorsByIndex((previous) => ({
+          ...previous,
+          [targetStepIndex]: options?.prefetch
+            ? `Prefetch failed: ${message}`
+            : message,
+        }));
+      } finally {
+        inFlightStepIndexesRef.current.delete(targetStepIndex);
+        setLoadingStepIndexes((previous) => {
+          const next = { ...previous };
+          delete next[targetStepIndex];
+          return next;
+        });
+      }
+    },
+    [
+      buildPreviousStepSummaries,
+      generatedStepsByIndex,
+      lessonOutline,
+      lessonPlan,
+      setGeneratedStep,
+    ],
+  );
 
   async function handleGenerateLesson() {
     const trimmedProblem = problemInput.trim();
@@ -71,8 +286,10 @@ export function WhiteboardTutorShell() {
         throw new Error(payload.error ?? "Lesson generation failed.");
       }
 
-      const lessonPlan = lessonPlanSchema.parse(payload);
-      setLessonPlan(lessonPlan);
+      const lessonSession = lessonSessionSchema.parse(payload);
+      setLessonSession(lessonSession);
+      setStepErrorsByIndex({});
+      setLoadingStepIndexes({});
     } catch (error) {
       setGenerationError(
         error instanceof Error
@@ -83,6 +300,46 @@ export function WhiteboardTutorShell() {
       setIsGeneratingLesson(false);
     }
   }
+
+  useEffect(() => {
+    if (!lessonOutline || !lessonPlan) return;
+
+    if (
+      !generatedStepsByIndex[currentStepIndex] &&
+      !loadingStepIndexes[currentStepIndex] &&
+      !stepErrorsByIndex[currentStepIndex]
+    ) {
+      void loadDetailedStep(currentStepIndex);
+    }
+  }, [
+    currentStepIndex,
+    generatedStepsByIndex,
+    lessonOutline,
+    lessonPlan,
+    loadDetailedStep,
+    loadingStepIndexes,
+    stepErrorsByIndex,
+  ]);
+
+  useEffect(() => {
+    if (!lessonOutline) return;
+    if (!generatedStepsByIndex[currentStepIndex]) return;
+
+    const nextStepIndex = currentStepIndex + 1;
+    if (nextStepIndex >= lessonOutline.outlineSteps.length) return;
+    if (generatedStepsByIndex[nextStepIndex]) return;
+    if (loadingStepIndexes[nextStepIndex]) return;
+    if (stepErrorsByIndex[nextStepIndex]) return;
+
+    void loadDetailedStep(nextStepIndex, { prefetch: true });
+  }, [
+    currentStepIndex,
+    generatedStepsByIndex,
+    lessonOutline,
+    loadDetailedStep,
+    loadingStepIndexes,
+    stepErrorsByIndex,
+  ]);
 
   return (
     <main className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(14,165,233,0.18),_transparent_30%),linear-gradient(180deg,_#0f172a_0%,_#111827_42%,_#020617_100%)] text-white">
@@ -113,6 +370,7 @@ export function WhiteboardTutorShell() {
                   totalSteps > 0 ? `${currentStepIndex + 1} / ${totalSteps}` : "0 / 0"
                 }
               />
+              <StatusPill label="Lesson type" value={lessonType ?? "none"} />
             </div>
           </div>
         </header>
@@ -154,7 +412,7 @@ export function WhiteboardTutorShell() {
                 disabled={isGeneratingLesson}
                 className="rounded-2xl border border-sky-300 bg-sky-300/15 px-4 py-2 text-sm font-medium text-sky-100 transition hover:bg-sky-300/25 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {isGeneratingLesson ? "Generating lesson..." : "Generate Lesson"}
+                {isGeneratingLesson ? "Generating outline..." : "Generate Lesson"}
               </button>
             </div>
 
@@ -187,9 +445,9 @@ export function WhiteboardTutorShell() {
             <div className="mt-5 rounded-3xl border border-emerald-400/20 bg-emerald-400/10 p-4 text-sm text-emerald-100">
               <p className="font-semibold">Lesson generation path</p>
               <p className="mt-1 text-emerald-50/90">
-                Typed input now drives lesson generation. Image extraction,
-                narration, and interruption handling will plug into this same
-                lesson state without replacing the current playback system.
+                Typed input now generates a lightweight lesson outline first.
+                Detailed per-step generation will plug into this same session
+                state in Phase B without replacing the current playback system.
               </p>
             </div>
           </aside>
@@ -211,7 +469,7 @@ export function WhiteboardTutorShell() {
 
             <div className="min-h-0 flex-1">
               <WhiteboardCanvas
-                lessonPlan={lessonPlan}
+                lessonPlan={renderLessonPlan}
                 currentStepIndex={currentStepIndex}
                 renderRevision={renderRevision}
                 onStepPlaybackComplete={nextStep}
@@ -239,15 +497,37 @@ export function WhiteboardTutorShell() {
               <p className="mt-2 text-sm font-medium text-sky-200">
                 Step {totalSteps > 0 ? currentStepIndex + 1 : 0} of {totalSteps}
               </p>
+              {lessonOutline ? (
+                <p className="mt-2 text-xs uppercase tracking-[0.2em] text-zinc-500">
+                  Outline step:{" "}
+                  {lessonOutline.outlineSteps[currentStepIndex]?.title ?? "Unavailable"}
+                </p>
+              ) : null}
               <h3 className="mt-2 text-lg font-semibold text-white">
-                {currentStep?.title ?? "No step selected"}
+                {currentStepTitle}
               </h3>
               <p className="mt-3 text-xs uppercase tracking-[0.22em] text-zinc-500">
                 Narration
               </p>
               <p className="mt-2 text-sm leading-6 text-zinc-300">
-                {currentStep?.narration ?? "Load a lesson to begin."}
+                {currentStepNarration}
               </p>
+              {isCurrentStepLoading ? (
+                <p className="mt-3 text-sm text-sky-200">
+                  Generating detailed step {currentStepIndex + 1}...
+                </p>
+              ) : null}
+              {currentStepError ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    void loadDetailedStep(currentStepIndex);
+                  }}
+                  className="mt-3 rounded-2xl border border-rose-300/30 bg-rose-400/10 px-3 py-2 text-sm font-medium text-rose-100 transition hover:bg-rose-400/20"
+                >
+                  Retry step generation
+                </button>
+              ) : null}
 
               <div className="mt-4 flex flex-wrap gap-2">
                 <button
@@ -282,8 +562,11 @@ export function WhiteboardTutorShell() {
             </div>
 
             <div className="mt-5 space-y-3">
-              {lessonPlan?.steps.map((step, index) => {
+              {resolvedSteps.map((step, index) => {
                 const isActive = index === currentStepIndex;
+                const outlineTitle =
+                  lessonOutline?.outlineSteps[index]?.title ?? step.title;
+
                 return (
                   <div
                     key={step.id}
@@ -297,8 +580,15 @@ export function WhiteboardTutorShell() {
                       Step {index + 1}
                     </p>
                     <p className="mt-1 font-medium text-white">{step.title}</p>
+                    {outlineTitle !== step.title ? (
+                      <p className="mt-2 text-xs uppercase tracking-[0.2em] text-sky-200">
+                        Outline: {outlineTitle}
+                      </p>
+                    ) : null}
                     <p className="mt-2 text-sm leading-6 text-zinc-300">
-                      {step.narration}
+                      {loadingStepIndexes[index]
+                        ? "Generating detailed step..."
+                        : stepErrorsByIndex[index] ?? step.narration}
                     </p>
                   </div>
                 );

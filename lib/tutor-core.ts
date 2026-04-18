@@ -101,8 +101,39 @@ export const lessonPlanSchema = z.object({
   steps: z.array(stepSchema).min(1),
 });
 
+export const lessonOutlineStepSchema = z.object({
+  id: z.string(),
+  title: z.string().trim().min(1),
+});
+
+export const lessonOutlineSchema = z.object({
+  problemText: z.string().trim().min(1),
+  lessonType: z.string().trim().min(1),
+  outlineSteps: z.array(lessonOutlineStepSchema).min(3).max(6),
+});
+
+export const lessonSessionSchema = z.object({
+  outline: lessonOutlineSchema,
+  lessonPlan: lessonPlanSchema,
+});
+
+export const generatedStepSummarySchema = z.object({
+  index: z.number().int().min(0),
+  title: z.string().trim().min(1),
+  narration: z.string().trim().min(1),
+  labels: z.array(z.string().trim().min(1)).max(12).default([]),
+});
+
 export const generateLessonRequestSchema = z.object({
   problemText: z.string().trim().min(1).max(500),
+});
+
+export const generateLessonStepRequestSchema = z.object({
+  problemText: z.string().trim().min(1).max(500),
+  lessonType: z.string().trim().min(1),
+  outlineSteps: z.array(lessonOutlineStepSchema).min(1).max(6),
+  targetStepIndex: z.number().int().min(0).max(5),
+  previousSteps: z.array(generatedStepSummarySchema).max(6).default([]),
 });
 
 export const extractedProblemSchema = z.object({
@@ -126,7 +157,12 @@ export const transcriptionEventSchema = z.object({
 export type DrawAction = z.infer<typeof drawActionSchema>;
 export type Step = z.infer<typeof stepSchema>;
 export type LessonPlan = z.infer<typeof lessonPlanSchema>;
+export type LessonOutlineStep = z.infer<typeof lessonOutlineStepSchema>;
+export type LessonOutline = z.infer<typeof lessonOutlineSchema>;
+export type LessonSession = z.infer<typeof lessonSessionSchema>;
+export type GeneratedStepSummary = z.infer<typeof generatedStepSummarySchema>;
 export type GenerateLessonRequest = z.infer<typeof generateLessonRequestSchema>;
+export type GenerateLessonStepRequest = z.infer<typeof generateLessonStepRequestSchema>;
 export type ExtractedProblem = z.infer<typeof extractedProblemSchema>;
 export type NarrationChunk = z.infer<typeof narrationChunkSchema>;
 export type TranscriptionEvent = z.infer<typeof transcriptionEventSchema>;
@@ -325,6 +361,20 @@ export const mockLessonPlan = lessonPlanSchema.parse({
     },
   ],
 });
+
+export function buildLessonOutlineFromPlan(
+  lessonPlan: LessonPlan,
+  lessonType = "mock_lesson",
+): LessonOutline {
+  return lessonOutlineSchema.parse({
+    problemText: lessonPlan.problem,
+    lessonType,
+    outlineSteps: lessonPlan.steps.slice(0, 6).map((step, index) => ({
+      id: step.id || `step_${index + 1}`,
+      title: step.title,
+    })),
+  });
+}
 
 function notReady(name: string): never {
   throw new Error(`${name} is not wired yet.`);
