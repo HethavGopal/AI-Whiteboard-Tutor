@@ -39,7 +39,8 @@ Two non-negotiables drive the architecture:
   demoCache.ts                # client-side manifest loader + fuzzy matcher
   schemas.ts                  # zod: LessonPlan, Step, DrawAction, BranchPlan
   llm/k2think.ts              # OpenAI-compatible client, strips <think> traces
-  llm/claudeVision.ts         # Anthropic SDK, vision extraction
+  llm/geminiVision.ts         # @google/generative-ai, vision extraction + structured output
+  llm/claudeFallback.ts       # Anthropic SDK, full vision+reasoning fallback
   llm/prompts.ts              # system prompts for plan, branch, router
   sse.ts                      # server-side SSE writer + client-side JSONL reader
   audio.ts                    # cancellable audio player wrapper
@@ -82,14 +83,15 @@ Every shape created on the tldraw canvas carries `meta: { step_id, semantic_labe
 **Deliverable:** `npm run dev` shows a Next.js page with tldraw canvas, and a standalone script has confirmed K2 Think streams clean JSON.
 
 1. `npx create-next-app@latest` (App Router, TS, Tailwind).
-2. Install: `@tldraw/tldraw`, `zustand`, `katex`, `zod`, `@anthropic-ai/sdk`, `openai` (for K2 Think's OpenAI-compatible endpoint), `@deepgram/sdk`.
-3. Create `.env.local` with the 5 env vars from PRD §6.1.
-4. **Risk spike (PRD §8 "Spike first"):** write `scripts/spike-k2.ts` that hits K2 Think with the lesson-plan system prompt for `2x² + 7x + 3 = 0` and streams the response. Verify:
-   - JSONL comes out clean OR `<think>...</think>` prefix is present and strippable.
-   - Build the `<think>` stripper in `lib/llm/k2think.ts` now so every downstream call is safe.
+2. Install: `@tldraw/tldraw`, `zustand`, `katex`, `zod`, `@google/generative-ai` (Gemini vision), `openai` (for K2 Think's OpenAI-compatible endpoint), `@anthropic-ai/sdk` (fallback only), `@deepgram/sdk`.
+3. Create `.env.local` with the 5 env vars from PRD §6.1 (`GEMINI_API_KEY`, `K2_THINK_API_KEY`, `ELEVENLABS_API_KEY`, `DEEPGRAM_API_KEY`, `ANTHROPIC_API_KEY`).
+4. **Risk spike — two probes in parallel (PRD §8 "Spike first"):**
+   - `scripts/spike-gemini.ts`: POST a test math photo to Gemini 2.5 Flash. Verify it returns `{latex, given, find}` as structured JSON and doesn't hallucinate the equation. If Gemini requires `responseSchema`, wire it now in `lib/llm/geminiVision.ts`.
+   - `scripts/spike-k2.ts`: hit K2 Think with the lesson-plan system prompt for `2x² + 7x + 3 = 0` and stream the response. Verify JSONL is clean OR `<think>...</think>` prefix is strippable. Build the stripper in `lib/llm/k2think.ts` now so every downstream call is safe.
+   - Both must pass before Phase 1. If either fails after 1.5h, flip to `ANTHROPIC_API_KEY` (Claude Sonnet 4.6) for that role and continue.
 5. Render empty read-only tldraw canvas in `app/page.tsx`.
 
-**Gate:** K2 Think returns parseable `Step` objects. If it doesn't after 1.5h, flip to `FALLBACK_LLM_KEY` (Claude Sonnet 4.6) for reasoning and continue.
+**Gate:** Gemini returns clean structured JSON from a test photo AND K2 Think returns parseable `Step` objects. If either fails after 1.5h, flip the relevant role to `ANTHROPIC_API_KEY` (Claude Sonnet 4.6) and continue.
 
 ---
 
@@ -99,7 +101,8 @@ Every shape created on the tldraw canvas carries `meta: { step_id, semantic_labe
 
 ### 1.1 Upload + vision extraction
 - `UploadButton` uses `<input type="file" accept="image/*" capture="environment">`.
-- `POST /api/lesson` receives multipart image, calls Claude Sonnet 4.6 vision with prompt: *"Extract the math problem. Return strict JSON: `{problem_type, latex, given, find}`. Refuse non-math with `{error:'not_math'}`."*
+- `POST /api/lesson` receives multipart image, calls **Gemini 2.5 Flash** via `lib/llm/geminiVision.ts` with prompt: *"Extract the math problem. Return strict JSON: `{problem_type, latex, given, find, equation_bbox}`. Refuse non-math with `{error:'not_math'}`."* Use Gemini's `responseSchema` (structured output mode) to guarantee parseable JSON — no regex needed.
+- `equation_bbox` (optional, `{x,y,w,h}` in image-relative coords) is used by tldrawBridge to place the initial equation shape at a spatially coherent position.
 - On `not_math` or vision failure → client shows the retry UI with 3 example photos (FR-1.3, US-9).
 
 ### 1.2 Lesson plan generation (SSE JSONL)
@@ -217,8 +220,9 @@ Every shape created on the tldraw canvas carries `meta: { step_id, semantic_labe
 | `@tldraw/tldraw` | Hand-drawn look, `editor.createShape`, `editor.animateShape`, `meta` field for `semantic_label` |
 | `katex` | `renderToString` → SVG data URL (synchronous, zero network) |
 | `@deepgram/sdk` | `liveClient` for streaming STT |
+| `@google/generative-ai` | Gemini 2.5 Flash vision extraction; use `responseSchema` for structured JSON output |
 | `openai` | K2 Think client via `baseURL: 'https://api.k2think.ai/v1'` (OpenAI-compatible) |
-| `@anthropic-ai/sdk` | Claude Sonnet 4.6 vision extraction only |
+| `@anthropic-ai/sdk` | Claude Sonnet 4.6 — full vision + reasoning fallback only; imported in `lib/llm/claudeFallback.ts` |
 | `zustand` | Flat session state store |
 | `zod` | Schema validation of all LLM JSON output |
 | `HTMLAudioElement` | Cancellable audio — `pause(); src=''` is sufficient (FR-4.3) |
@@ -244,4 +248,5 @@ Every shape created on the tldraw canvas carries `meta: { step_id, semantic_labe
 | tldraw API surprises | 2h spike budgeted in Phase 0/1; Excalidraw is the known escape hatch |
 | ElevenLabs outage | Cached MP3s make demo path immune; live path falls back to captions-only |
 | Venue Wi-Fi failure | Demo cache + backup video recording in Phase 6 |
-| K2 Think endpoint down | `FALLBACK_LLM_KEY` (Claude Sonnet 4.6) — one-line swap in API route |
+| Gemini endpoint down | Swap `geminiVision.ts` for `claudeFallback.ts` in `/api/lesson` — one-line change; Claude handles vision too |
+| K2 Think endpoint down | Swap K2 client for `claudeFallback.ts` in `/api/lesson` + `/api/branch` — one-line change per route |
