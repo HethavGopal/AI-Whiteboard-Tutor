@@ -190,15 +190,15 @@ export function WhiteboardCanvas({
 
   return (
     <div className="relative h-full min-h-[420px] overflow-hidden rounded-[28px] border border-white/10 bg-white shadow-2xl shadow-sky-950/10">
+      <style>{`
+        .tlui-layout__top__left { display: none !important; }
+      `}</style>
       <Tldraw
         components={{
           MainMenu: null,
           PageMenu: null,
           ActionsMenu: null,
           NavigationPanel: null,
-          HelperButtons: null,
-          MenuPanel: null,
-          TopPanel: null,
         }}
         onMount={(editor) => {
           editorRef.current = editor;
