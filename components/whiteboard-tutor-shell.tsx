@@ -66,8 +66,8 @@ export function WhiteboardTutorShell() {
   const currentStep = lessonPlan?.steps[currentStepIndex] ?? null;
   const totalSteps = lessonPlan?.steps.length ?? 0;
 
-  function prependMessage(msg: Message) {
-    setMessages((prev) => [msg, ...prev]);
+  function appendMessage(msg: Message) {
+    setMessages((prev) => [...prev, msg]);
   }
 
   async function handleGenerateLesson(overrideText?: string) {
@@ -80,7 +80,7 @@ export function WhiteboardTutorShell() {
     setIsGeneratingLesson(true);
     setGenerationError(null);
 
-    prependMessage({
+    appendMessage({
       id: `u-${Date.now()}`,
       role: "user",
       text: trimmedProblem,
@@ -102,7 +102,7 @@ export function WhiteboardTutorShell() {
       const plan = lessonPlanSchema.parse(payload);
       setLessonPlan(plan);
 
-      prependMessage({
+      appendMessage({
         id: `a-${Date.now()}`,
         role: "ai",
         text: `I've prepared a ${plan.steps.length}-step lesson on "${plan.title}". Follow along on the whiteboard!`,
@@ -111,7 +111,7 @@ export function WhiteboardTutorShell() {
       const msg =
         error instanceof Error ? error.message : "Lesson generation failed.";
       setGenerationError(msg);
-      prependMessage({
+      appendMessage({
         id: `a-${Date.now()}`,
         role: "ai",
         text: `Sorry, I couldn't generate a lesson: ${msg}`,
@@ -427,7 +427,7 @@ export function WhiteboardTutorShell() {
               </div>
             )}
 
-            {/* Message bubbles — newest first (prepend) */}
+            {/* Message bubbles — oldest first, newest appended below */}
             {hasMessages &&
               messages.map((msg) => (
                 <div
