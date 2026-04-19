@@ -13,8 +13,11 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Boardly — AI Whiteboard Tutor",
+  title: "Boardly",
   description: "Interactive AI tutoring on a whiteboard canvas",
+  icons: {
+    icon: "/Entora (2).svg",
+  },
 };
 
 export default function RootLayout({

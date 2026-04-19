@@ -191,57 +191,21 @@ export function WhiteboardCanvas({
   return (
     <div className="relative h-full min-h-[420px] overflow-hidden rounded-[28px] border border-white/10 bg-white shadow-2xl shadow-sky-950/10">
       <Tldraw
+        components={{
+          MainMenu: null,
+          PageMenu: null,
+          ActionsMenu: null,
+          NavigationPanel: null,
+          HelperButtons: null,
+          MenuPanel: null,
+          TopPanel: null,
+        }}
         onMount={(editor) => {
           editorRef.current = editor;
           setEditor(editor);
           setIsMounted(true);
         }}
       />
-
-      {/* Top-left status badge */}
-      <div className="pointer-events-none absolute left-4 top-4">
-        <div className="rounded-full border border-[#eadfd6] bg-white/90 px-3 py-1 text-xs font-medium text-[#6f625b] shadow-sm backdrop-blur">
-          {isMounted
-            ? `Canvas ready | Step ${currentStepIndex + 1}${renderResult.isAnimating ? " | Animating…" : ""}`
-            : "Mounting canvas…"}
-        </div>
-      </div>
-
-      {/* Top-right step info */}
-      {currentStep ? (
-        <div className="pointer-events-none absolute right-4 top-4 max-w-[220px]">
-          <div className="rounded-2xl border border-[#eadfd6] bg-white/90 px-3 py-2 text-xs text-[#6f625b] shadow-sm backdrop-blur">
-            <p className="font-semibold text-[#2f241f]">{currentStep.title}</p>
-            <p className="mt-1 text-[#9b8f87]">
-              Labels tracked:{" "}
-              {Object.keys(renderResult.labelMap).join(", ") || "none"}
-            </p>
-          </div>
-        </div>
-      ) : null}
-
-      {/* Bottom-left render info */}
-      <div className="pointer-events-none absolute bottom-4 left-4 max-w-sm">
-        <div className="rounded-2xl border border-[#eadfd6] bg-white/90 px-3 py-2 text-xs text-[#6f625b] shadow-sm backdrop-blur">
-          <p className="font-semibold text-[#2f241f]">
-            Rendered actions: {renderResult.renderedActionIds.length}
-          </p>
-          <p className="mt-1">
-            Rebuild strategy: steps 1 through{" "}
-            {Math.max(currentStepIndex + 1, 0)}
-          </p>
-          {renderResult.activeActionId ? (
-            <p className="mt-1 text-[#ff7a2f]">
-              Active action: {renderResult.activeActionId}
-            </p>
-          ) : null}
-          {renderResult.warnings.length > 0 ? (
-            <p className="mt-1 text-amber-600">
-              Warnings: {renderResult.warnings.join(" | ")}
-            </p>
-          ) : null}
-        </div>
-      </div>
     </div>
   );
 }

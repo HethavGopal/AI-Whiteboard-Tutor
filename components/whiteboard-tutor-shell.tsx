@@ -232,11 +232,11 @@ export function WhiteboardTutorShell() {
           className="h-[64px] w-auto"
           alt="Boardly"
         />
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-1">
           <button type="button" onClick={handleNew} className={btnNav}>
             New
           </button>
-          <div className="h-5 w-px bg-[#eadfd6]" />
+          <span className="text-[#eadfd6] select-none">|</span>
           <button
             type="button"
             onClick={resetLessonPlayback}
@@ -278,25 +278,6 @@ export function WhiteboardTutorShell() {
               )}
             </div>
 
-            <div className="flex shrink-0 items-center gap-2">
-              {hasLesson ? (
-                <>
-                  <div className="h-1 w-24 overflow-hidden rounded-full bg-[#eadfd6]">
-                    <div
-                      className="h-full rounded-full bg-[#ff914d] transition-all duration-300"
-                      style={{ width: `${progressPct}%` }}
-                    />
-                  </div>
-                  <span className="rounded-full bg-[#fff1e8] px-2.5 py-0.5 text-[11px] font-semibold text-[#ff7a2f]">
-                    {currentStepIndex + 1} / {totalSteps}
-                  </span>
-                </>
-              ) : (
-                <span className="text-[11px] text-[#c9bdb5]">
-                  No lesson loaded
-                </span>
-              )}
-            </div>
           </div>
 
           {/* Canvas */}
