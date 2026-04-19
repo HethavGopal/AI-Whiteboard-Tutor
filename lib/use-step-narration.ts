@@ -49,6 +49,23 @@ export function useStepNarration() {
       return;
     }
 
+    if (lessonMode === "manual_paused") {
+      audioRef.current?.pause();
+      setNarrationState("idle");
+      return;
+    }
+
+    if (
+      lessonMode === "main" &&
+      audioRef.current &&
+      audioRef.current.paused &&
+      audioRef.current.src
+    ) {
+      void audioRef.current.play();
+      setNarrationState("speaking");
+      return;
+    }
+
     let narrationText: string | null = null;
     let isLastChunk = false;
     let onComplete: () => void = () => {};
@@ -135,6 +152,14 @@ export function useStepNarration() {
 
     return () => {
       cancelled = true;
+      const nextState = useTutorStore.getState();
+      const sameStep = nextState.currentStepIndex === currentStepIndex;
+      if (nextState.lessonMode === "manual_paused" && sameStep) {
+        abortRef.current?.abort();
+        abortRef.current = null;
+        audioRef.current?.pause();
+        return;
+      }
       cleanup();
     };
   }, [

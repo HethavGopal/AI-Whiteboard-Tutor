@@ -51,6 +51,8 @@ export function WhiteboardTutorShell() {
     loadMockLesson,
     resumeMainLesson,
     cancelInterruption,
+    pauseManually,
+    resumeManually,
   } = useTutorStore();
 
   useStepNarration();
@@ -401,6 +403,24 @@ export function WhiteboardTutorShell() {
                   />
                 </div>
                 <div className="mt-3 flex flex-wrap gap-1.5">
+                  {lessonMode === "manual_paused" ? (
+                    <button
+                      type="button"
+                      onClick={resumeManually}
+                      className={btnPrimary}
+                    >
+                      ▶ Resume
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={pauseManually}
+                      disabled={lessonMode !== "main"}
+                      className={btnAccent}
+                    >
+                      ⏸ Pause
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={previousStep}

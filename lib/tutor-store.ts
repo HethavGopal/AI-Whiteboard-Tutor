@@ -57,6 +57,8 @@ type TutorState = {
   setLastDrawnLabel: (label: string | null) => void;
 
   beginInterruption: () => void;
+  pauseManually: () => void;
+  resumeManually: () => void;
   setThinking: (value: boolean) => void;
   setLastTranscript: (value: string | null) => void;
   setBranchError: (value: string | null) => void;
@@ -175,6 +177,14 @@ export const useTutorStore = create<TutorState>((set, get) => ({
       },
       branchError: null,
     })),
+  pauseManually: () =>
+    set((state) =>
+      state.lessonMode === "main" ? { lessonMode: "manual_paused" } : state,
+    ),
+  resumeManually: () =>
+    set((state) =>
+      state.lessonMode === "manual_paused" ? { lessonMode: "main" } : state,
+    ),
   setThinking: (value) => set({ isThinking: value }),
   setLastTranscript: (value) => set({ lastTranscript: value }),
   setBranchError: (value) => set({ branchError: value }),

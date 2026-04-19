@@ -198,7 +198,7 @@ export type TranscriptionEvent = z.infer<typeof transcriptionEventSchema>;
 export type AppMode = "lesson" | "follow-up";
 export type RecordingState = "idle" | "listening" | "paused";
 export type NarrationState = "idle" | "queued" | "speaking";
-export type LessonMode = "main" | "paused" | "branch" | "awaiting_confirm";
+export type LessonMode = "main" | "paused" | "manual_paused" | "branch" | "awaiting_confirm";
 
 export const mockLessonPlan = lessonPlanSchema.parse({
   id: "solve-linear-equation-1",

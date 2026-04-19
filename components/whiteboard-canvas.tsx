@@ -49,6 +49,7 @@ export function WhiteboardCanvas({
   const [renderResult, setRenderResult] =
     useState<WhiteboardPlaybackSnapshot>(emptyRenderResult);
   const liveLabelMapRef = useRef<LabelMap>({});
+  const lastRenderedKeyRef = useRef<string | null>(null);
 
   const lessonMode = useTutorStore((s) => s.lessonMode);
   const branchPlan = useTutorStore((s) => s.branchPlan);
@@ -73,9 +74,17 @@ export function WhiteboardCanvas({
       return;
     }
 
-    if (lessonMode === "paused") {
-      // Freeze: don't restart drawing, don't wipe. The pause was triggered
-      // by the mic button; we keep whatever is on the board right now.
+    if (lessonMode === "paused" || lessonMode === "manual_paused") {
+      // Freeze: don't restart drawing, don't wipe. Either the mic button
+      // (paused) or the manual Pause control (manual_paused) put us here;
+      // we keep whatever is on the board right now.
+      return;
+    }
+
+    const renderKey = `${currentStepIndex}-${renderRevision}`;
+    if (lastRenderedKeyRef.current === renderKey) {
+      // Already rendered this exact step+revision; this fire was a mode-only
+      // resume (e.g. manual_paused -> main). Skip the wipe-and-replay.
       return;
     }
 
@@ -102,6 +111,10 @@ export function WhiteboardCanvas({
       },
     })
       .then(() => {
+        if (!controller.signal.aborted) {
+          lastRenderedKeyRef.current = renderKey;
+        }
+
         const isLastStep =
           !lessonPlan || currentStepIndex >= lessonPlan.steps.length - 1;
 

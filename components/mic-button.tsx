@@ -79,7 +79,9 @@ export function MicButton() {
   const [errorText, setErrorText] = useState<string | null>(null);
 
   const disabled =
-    lessonMode === "branch" || lessonMode === "awaiting_confirm";
+    lessonMode === "branch" ||
+    lessonMode === "awaiting_confirm" ||
+    lessonMode === "manual_paused";
 
   const cleanupStream = useCallback(() => {
     streamRef.current?.getTracks().forEach((t) => t.stop());
@@ -262,6 +264,7 @@ export function MicButton() {
     if (localState === "recording") return "Listening… release to send";
     if (localState === "transcribing") return "Transcribing…";
     if (localState === "thinking") return "Thinking…";
+    if (lessonMode === "manual_paused") return "Mic disabled while paused";
     if (disabled) return "Mic disabled during branch";
     return "Hold to ask a question";
   })();
