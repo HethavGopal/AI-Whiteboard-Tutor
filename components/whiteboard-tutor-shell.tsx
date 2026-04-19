@@ -280,6 +280,7 @@ export function WhiteboardTutorShell() {
               lessonPlan={lessonPlan}
               currentStepIndex={currentStepIndex}
               renderRevision={renderRevision}
+              isGeneratingAvatar={isGeneratingLesson || isExtracting}
             />
           </div>
         </div>

@@ -34,6 +34,51 @@ body {
   font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
 }
 
+@keyframes avatar-idle-float {
+  0%,
+  100% {
+    transform: translateY(0) scale(1);
+  }
+  50% {
+    transform: translateY(-4px) scale(1.01);
+  }
+}
+
+@keyframes avatar-speaking-bounce {
+  0%,
+  100% {
+    transform: translateY(0) scale(1);
+  }
+  50% {
+    transform: translateY(-6px) scale(1.03);
+  }
+}
+
+@keyframes avatar-listening-focus {
+  0%,
+  100% {
+    transform: translateY(0) scale(1) rotate(0deg);
+  }
+  50% {
+    transform: translateY(-2px) scale(1.04) rotate(-1.25deg);
+  }
+}
+
+@keyframes avatar-step-nod {
+  0% {
+    transform: translateY(0) scale(1) rotate(0deg);
+  }
+  28% {
+    transform: translateY(3px) scale(0.985) rotate(1deg);
+  }
+  62% {
+    transform: translateY(-5px) scale(1.02) rotate(-1deg);
+  }
+  100% {
+    transform: translateY(0) scale(1) rotate(0deg);
+  }
+}
+
 * {
   box-sizing: border-box;
 }

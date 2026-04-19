@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { TutorAvatar } from "@/components/tutor-avatar";
 import { Tldraw, type Editor } from "tldraw";
 import "tldraw/tldraw.css";
 
@@ -14,10 +15,14 @@ import {
 } from "@/lib/whiteboard-renderer";
 import { useTutorStore } from "@/lib/tutor-store";
 
+const tldrawLicenseKey =
+  process.env.NEXT_PUBLIC_TLDRAW_LICENSE_KEY?.trim() || undefined;
+
 type WhiteboardCanvasProps = {
   lessonPlan: LessonPlan | null;
   currentStepIndex: number;
   renderRevision: number;
+  isGeneratingAvatar?: boolean;
   onStepPlaybackComplete?: () => void;
 };
 
@@ -42,6 +47,7 @@ export function WhiteboardCanvas({
   lessonPlan,
   currentStepIndex,
   renderRevision,
+  isGeneratingAvatar = false,
   onStepPlaybackComplete,
 }: WhiteboardCanvasProps) {
   const editorRef = useRef<Editor | null>(null);
@@ -192,12 +198,20 @@ export function WhiteboardCanvas({
     <div className="relative h-full min-h-[420px] overflow-hidden rounded-[28px] border border-white/10 bg-white shadow-2xl shadow-sky-950/10">
       <Tldraw
         components={{ PageMenu: null, TopPanel: null, MainMenu: null, QuickActions: null, MenuPanel: null }}
+        licenseKey={tldrawLicenseKey}
         onMount={(editor) => {
           editorRef.current = editor;
           setEditor(editor);
           setIsMounted(true);
         }}
       />
+
+      <div className="absolute left-4 top-4 z-10 w-[260px] max-w-[calc(100%-5rem)]">
+        <TutorAvatar
+          isGenerating={isGeneratingAvatar}
+          variant="overlay"
+        />
+      </div>
 
       {/* Top-right step info */}
       {currentStep ? (

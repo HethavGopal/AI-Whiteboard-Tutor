@@ -11,6 +11,7 @@ export function useResumeVoiceWindow() {
   const lessonMode = useTutorStore((s) => s.lessonMode);
   const resumeMainLesson = useTutorStore((s) => s.resumeMainLesson);
   const setLastTranscript = useTutorStore((s) => s.setLastTranscript);
+  const setRecordingState = useTutorStore((s) => s.setRecordingState);
 
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -20,6 +21,9 @@ export function useResumeVoiceWindow() {
   useEffect(() => {
     if (lessonMode !== "awaiting_confirm") return;
     cancelledRef.current = false;
+    // This lightweight hook point lets the avatar present a listening pose
+    // during the short post-branch voice-confirm window as well.
+    setRecordingState("listening");
 
     let stopTimer: number | undefined;
 
@@ -85,6 +89,7 @@ export function useResumeVoiceWindow() {
 
     return () => {
       cancelledRef.current = true;
+      setRecordingState("idle");
       if (stopTimer) window.clearTimeout(stopTimer);
       const recorder = recorderRef.current;
       if (recorder && recorder.state !== "inactive") {
@@ -99,5 +104,5 @@ export function useResumeVoiceWindow() {
       streamRef.current = null;
       chunksRef.current = [];
     };
-  }, [lessonMode, resumeMainLesson, setLastTranscript]);
+  }, [lessonMode, resumeMainLesson, setLastTranscript, setRecordingState]);
 }

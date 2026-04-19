@@ -40,6 +40,7 @@ type TutorState = {
 
   // Live editor handle (set by WhiteboardCanvas onMount)
   editor: Editor | null;
+  activeNarrationAudio: HTMLAudioElement | null;
 
   setProblemInput: (value: string) => void;
   setLessonPlan: (value: LessonPlan) => void;
@@ -54,6 +55,7 @@ type TutorState = {
   loadMockLesson: () => void;
 
   setEditor: (editor: Editor | null) => void;
+  setActiveNarrationAudio: (audio: HTMLAudioElement | null) => void;
   setLastDrawnLabel: (label: string | null) => void;
 
   beginInterruption: () => void;
@@ -93,6 +95,7 @@ export const useTutorStore = create<TutorState>((set, get) => ({
   branchError: null,
 
   editor: null,
+  activeNarrationAudio: null,
 
   setProblemInput: (value) => set({ problemInput: value }),
   setLessonPlan: (value) => {
@@ -164,6 +167,7 @@ export const useTutorStore = create<TutorState>((set, get) => ({
     }),
 
   setEditor: (editor) => set({ editor }),
+  setActiveNarrationAudio: (audio) => set({ activeNarrationAudio: audio }),
   setLastDrawnLabel: (label) => set({ lastDrawnLabel: label }),
 
   beginInterruption: () =>
