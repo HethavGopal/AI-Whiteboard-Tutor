@@ -1,4 +1,5 @@
 import { generateLessonStreamWithGemini } from "@/lib/gemini-lesson-service";
+import { getTutorialLesson } from "@/lib/tutorial-math";
 import {
   generateLessonRequestSchema,
   lessonPlanSchema,
@@ -106,6 +107,26 @@ Rules:
 - Ensure all ids are unique strings.
 - Ensure the JSON is valid.
 - ACTION ORDERING: an axes action MUST appear before any plot_function, tangent_line, or point action that references its semanticLabel — either in an earlier step, or earlier in the same step's drawActions array. Out-of-order references will push a warning and the shape will not render.
+- AXES IMPLIES PRIOR-TEXT ERASE: If a step's drawActions contain an "axes" action, that step's FIRST drawAction MUST be an "erase" listing every text-shape semanticLabel emitted in all earlier steps. Never mix a fresh "axes" with un-erased text from prior steps — the axes action expects a clean canvas.
+
+If the problem is PURELY ABSTRACT with no possible visual demonstration (e.g. "name the rules of differentiation", "what notation does Leibniz use", "what is the formal statement of the IVT", "explain the epsilon-delta definition", historical/notation/terminology questions):
+- Produce a text-only lesson. No "axes", "plot_function", "tangent_line", or "point" actions anywhere.
+- Use the Phase-1 fixed y-slots (80, 115, 160, 205+30*i, 295) for stacked text — never overlap.
+- Keep within 3 to 5 steps; each step is one or two short text shapes plus narration.
+- Do not invent custom action types or extra top-level keys; stay strictly within the schema above so JSON validation passes.
+
+NOTE: questions like "explain how to find if a limit exists", "explain the power rule", "what is a derivative geometrically", "show me how continuity works", "what is a limit" are NOT purely abstract — they are conceptual but visualizable. For those, follow the visualizable-conceptual rule below, NOT the purely-abstract rule above.
+
+If the problem is a CONCEPTUAL but VISUALIZABLE question about a calculus topic (limits, continuity, derivatives) with no specific function provided:
+- You MUST pick the SIMPLEST illustrative example function and concrete point that still demonstrates the concept, then proceed exactly as if the user had asked about that specific example. Use the appropriate two-phase recipe below (derivative recipe for derivative concepts, limits/continuity recipe for limit/continuity concepts).
+- Recommended default examples (pick the simplest that fits the question):
+    * Limit existence / one-sided limits / "what is a limit" / "how to find if a limit exists": f(x) = x^2 at a = 0  (limit exists, both sides agree, trivially safe to plot)
+    * Jump discontinuity / "limit does not exist" / "show me a limit that DNE": piecewise { x for x <= 2 ; x + 1 for x > 2 } at a = 2
+    * Continuity at a point / "what is continuity": f(x) = x^2 at a = 1
+    * Power rule / "what is a derivative" / "how do derivatives work": f(x) = x^2
+    * Tangent line meaning / "geometric meaning of derivative": f(x) = x^2 at x = 1
+- Add a single Phase-1 Step-1 sub-shape stating "Example: f(x) = <chosen>" so the student knows the example is illustrative, not literal.
+- After that, follow the matching recipe's Phase 1 + Phase 2 in full. The Phase 2 graph is REQUIRED — do not stop at Phase 1.
 
 If the problem is a derivative (d/dx, "differentiate", "find the derivative"):
 
@@ -145,6 +166,44 @@ Coordinate rules for derivative lessons:
 - Phase 1 text: x in [120, 340], y in [80, 310] (the fixed slots above stay within this).
 - Phase 2 axes box: x:120 y:80 width:300 height:200.
 - Phase 2 slope labels: x:360, y values 90, 118, 146 for slots 0, 1, 2 respectively.
+
+If the problem is about LIMITS or CONTINUITY (lim_{x->a}, "find the limit", "does the limit exist", "is f continuous at", "discontinuity", "jump", "removable", one-sided limits):
+
+Function constraints: same as derivative — polynomial in x, integer/simple-decimal coefficients, every power a non-negative integer <= 4. Piecewise allowed only if EACH piece meets that constraint; if not, fall back to a text-only explanation with no axes/plot.
+
+PHASE 1 — symbolic reasoning (steps 1-4). Text shapes only, no graph shapes. Reuse the derivative Phase-1 fixed y-slots so spacing is identical:
+- Step 1:
+    { type:"create_shape", kind:"text", x:120, y:80,  text:"f(x) = <polynomial or piecewise>", semanticLabel:"fn_def" }
+    { type:"create_shape", kind:"text", x:120, y:115, text:"Find lim_{x->a} f(x)" or "Is f continuous at x=a?", semanticLabel:"goal" }
+- Step 2:
+    { type:"create_shape", kind:"text", x:120, y:160, text:"<applicable rule>", semanticLabel:"limit_rule" }
+    For limits-existence: "Limit exists iff lim_{x->a^-} f(x) = lim_{x->a^+} f(x)"
+    For continuity:       "Continuous at a iff lim_{x->a} f(x) = f(a) and f(a) is defined"
+- Step 3: one-sided / value computations, one text shape each:
+    { type:"create_shape", kind:"text", x:120, y:205, text:"lim_{x->a^-} f(x) = <L_minus>", semanticLabel:"left_limit"  }
+    { type:"create_shape", kind:"text", x:120, y:235, text:"lim_{x->a^+} f(x) = <L_plus>",  semanticLabel:"right_limit" }
+    (continuity adds: { type:"create_shape", kind:"text", x:120, y:265, text:"f(a) = <value>", semanticLabel:"fn_value" })
+- Step 4:
+    { type:"create_shape", kind:"text", x:120, y:295, text:"<conclusion: limit exists / DNE / continuous / jump discontinuity / removable / infinite>", semanticLabel:"conclusion" }
+
+Remember EVERY semanticLabel emitted in Phase 1 — you will list them all in the Phase 2 erase.
+
+PHASE 2 — graph (step 5+). Wipe the board first so the graph owns the full canvas.
+Step 5 drawActions MUST appear in exactly this order:
+  1. erase         targetLabels: [<every Phase-1 semanticLabel: "fn_def","goal","limit_rule","left_limit","right_limit","fn_value" if present, "conclusion">]
+  2. axes          semanticLabel:"main_axes", x:120, y:80, width:300, height:200,
+                   xMin/xMax/yMin/yMax adjusted to bracket x=a with at least 3 units on each side
+  3. plot_function axesLabel:"main_axes", expression:"<f(x)>"
+                   For piecewise, emit one plot_function per piece with that piece's xMin/xMax.
+  4. point         semanticLabel:"limit_point", axesLabel:"main_axes", expression:"<f(x)>", x:<a>, label:"(<a>, <L>)"
+                   For a removable/jump discontinuity: emit two points instead (semanticLabel:"left_marker" / "right_marker") at x=a using the relevant one-sided expressions; do NOT plot through x=a.
+
+Step 6 (optional, only if helpful): one or two annotation create_shape text shapes at x:360, y:90 / 118 to label the discontinuity type or restate the conclusion next to the graph.
+
+Coordinate rules for limits/continuity lessons:
+- Phase 1 text: x in [120, 340], y in [80, 310] (the fixed slots above stay within this).
+- Phase 2 axes box: x:120 y:80 width:300 height:200.
+- Phase 2 annotation labels: x:360, y values 90, 118 for slots 0, 1.
 
 Problem to teach:
 ${problemText}
@@ -306,6 +365,17 @@ export async function generateLessonStream(input: {
   problemText: string;
 }): Promise<ReadableStream<Uint8Array>> {
   const parsed = generateLessonRequestSchema.parse(input);
+
+  const tutorial = getTutorialLesson(parsed.problemText);
+  if (tutorial) {
+    const json = JSON.stringify(tutorial);
+    return new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode(json));
+        controller.close();
+      },
+    });
+  }
 
   try {
     return await generateLessonStreamWithGemini(parsed);
