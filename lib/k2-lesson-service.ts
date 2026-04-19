@@ -371,8 +371,10 @@ export async function generateLessonStream(input: {
     const json = JSON.stringify(tutorial);
     return new ReadableStream<Uint8Array>({
       start(controller) {
-        controller.enqueue(new TextEncoder().encode(json));
-        controller.close();
+        setTimeout(() => {
+          controller.enqueue(new TextEncoder().encode(json));
+          controller.close();
+        }, 2000);
       },
     });
   }
