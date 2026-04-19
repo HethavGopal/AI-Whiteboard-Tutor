@@ -366,24 +366,8 @@ export async function generateLessonStream(input: {
 }): Promise<ReadableStream<Uint8Array>> {
   const parsed = generateLessonRequestSchema.parse(input);
 
-  // #region agent log
-  fetch("http://127.0.0.1:7316/ingest/f39cdcba-cf18-4ba8-931d-27cdc21735e8", { method: "POST", headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "69a9ec" }, body: JSON.stringify({ sessionId: "69a9ec", runId: "lesson-source-debug", hypothesisId: "H1", location: "lib/k2-lesson-service.ts:368", message: "generateLessonStream called", data: { problemText: parsed.problemText }, timestamp: Date.now() }) }).catch(() => {});
-  console.info("[debug69a9ec]", "generateLessonStream called", {
-    problemText: parsed.problemText,
-  });
-  // #endregion
-
   const tutorial = getTutorialLesson(parsed.problemText);
   if (tutorial) {
-    // #region agent log
-    fetch("http://127.0.0.1:7316/ingest/f39cdcba-cf18-4ba8-931d-27cdc21735e8", { method: "POST", headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "69a9ec" }, body: JSON.stringify({ sessionId: "69a9ec", runId: "lesson-source-debug", hypothesisId: "H1", location: "lib/k2-lesson-service.ts:372", message: "tutorial lesson selected", data: { source: "tutorial-math", lessonId: tutorial.id, title: tutorial.title, stepCount: tutorial.steps.length }, timestamp: Date.now() }) }).catch(() => {});
-    console.info("[debug69a9ec]", "tutorial lesson selected", {
-      source: "tutorial-math",
-      lessonId: tutorial.id,
-      title: tutorial.title,
-      stepCount: tutorial.steps.length,
-    });
-    // #endregion
     const json = JSON.stringify(tutorial);
     return new ReadableStream<Uint8Array>({
       start(controller) {
@@ -396,22 +380,8 @@ export async function generateLessonStream(input: {
   }
 
   try {
-    // #region agent log
-    fetch("http://127.0.0.1:7316/ingest/f39cdcba-cf18-4ba8-931d-27cdc21735e8", { method: "POST", headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "69a9ec" }, body: JSON.stringify({ sessionId: "69a9ec", runId: "lesson-source-debug", hypothesisId: "H2", location: "lib/k2-lesson-service.ts:385", message: "tutorial lesson missing, trying gemini stream", data: { source: "gemini-primary", problemText: parsed.problemText }, timestamp: Date.now() }) }).catch(() => {});
-    console.info("[debug69a9ec]", "tutorial lesson missing, trying gemini stream", {
-      source: "gemini-primary",
-      problemText: parsed.problemText,
-    });
-    // #endregion
     return await generateLessonStreamWithGemini(parsed);
   } catch (geminiError) {
-    // #region agent log
-    fetch("http://127.0.0.1:7316/ingest/f39cdcba-cf18-4ba8-931d-27cdc21735e8", { method: "POST", headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "69a9ec" }, body: JSON.stringify({ sessionId: "69a9ec", runId: "lesson-source-debug", hypothesisId: "H2", location: "lib/k2-lesson-service.ts:390", message: "gemini failed, using k2 fallback", data: { source: "k2-fallback", error: geminiError instanceof Error ? geminiError.message : "unknown" }, timestamp: Date.now() }) }).catch(() => {});
-    console.info("[debug69a9ec]", "gemini failed, using k2 fallback", {
-      source: "k2-fallback",
-      error: geminiError instanceof Error ? geminiError.message : "unknown",
-    });
-    // #endregion
     console.warn(
       "[lesson] Gemini failed, falling back to K2-Think-v2:",
       geminiError,

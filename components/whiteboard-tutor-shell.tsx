@@ -86,13 +86,6 @@ export function WhiteboardTutorShell() {
       text: trimmedProblem,
     });
 
-    // #region agent log
-    fetch("http://127.0.0.1:7316/ingest/f39cdcba-cf18-4ba8-931d-27cdc21735e8", { method: "POST", headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "69a9ec" }, body: JSON.stringify({ sessionId: "69a9ec", runId: "lesson-source-debug", hypothesisId: "H3", location: "components/whiteboard-tutor-shell.tsx:88", message: "client requested lesson generation", data: { problemText: trimmedProblem }, timestamp: Date.now() }) }).catch(() => {});
-    console.info("[debug69a9ec]", "client requested lesson generation", {
-      problemText: trimmedProblem,
-    });
-    // #endregion
-
     try {
       const response = await fetch("/api/lesson", {
         method: "POST",
@@ -127,15 +120,6 @@ export function WhiteboardTutorShell() {
       }
 
       const plan = lessonPlanSchema.parse(JSON.parse(accumulated));
-
-      // #region agent log
-      fetch("http://127.0.0.1:7316/ingest/f39cdcba-cf18-4ba8-931d-27cdc21735e8", { method: "POST", headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "69a9ec" }, body: JSON.stringify({ sessionId: "69a9ec", runId: "lesson-source-debug", hypothesisId: "H3", location: "components/whiteboard-tutor-shell.tsx:124", message: "client parsed lesson plan", data: { lessonId: plan.id, title: plan.title, stepCount: plan.steps.length }, timestamp: Date.now() }) }).catch(() => {});
-      console.info("[debug69a9ec]", "client parsed lesson plan", {
-        lessonId: plan.id,
-        title: plan.title,
-        stepCount: plan.steps.length,
-      });
-      // #endregion
       setLessonPlan(plan);
 
       setMessages((prev) =>
