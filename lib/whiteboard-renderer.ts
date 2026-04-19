@@ -1,10 +1,11 @@
 import {
   createShapeId,
+  getIndices,
   toRichText,
   type Editor,
+  type IndexKey,
   type TLShapeId,
-} from "@tldraw/editor";
-import { getIndices, type IndexKey } from "@tldraw/utils";
+} from "tldraw";
 
 import type { BranchPlan, DrawAction, LessonPlan } from "@/lib/tutor-core";
 import {

@@ -1,4 +1,4 @@
-import type { Editor, TLShapeId } from "@tldraw/editor";
+import type { Editor, TLShapeId } from "tldraw";
 import { create } from "zustand";
 
 import {

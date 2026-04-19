@@ -141,6 +141,7 @@ export function MicButton() {
     cleanupStream,
     editor,
     lessonPlan,
+    lessonMode,
     currentStepIndex,
     setBranchError,
     setBranchPlan,
