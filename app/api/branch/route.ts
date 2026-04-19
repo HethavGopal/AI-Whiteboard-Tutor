@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { ZodError, z } from "zod";
 
-import { generateBranchWithK2 } from "@/lib/k2-branch-service";
+import { generateBranch } from "@/lib/k2-branch-service";
 
 const branchRequestSchema = z.object({
   problem: z.string().min(1).max(500),
@@ -16,7 +16,7 @@ export async function POST(request: Request) {
     const body = await request.json();
     const input = branchRequestSchema.parse(body);
 
-    const branchPlan = await generateBranchWithK2(input);
+    const branchPlan = await generateBranch(input);
 
     return NextResponse.json(branchPlan);
   } catch (error) {

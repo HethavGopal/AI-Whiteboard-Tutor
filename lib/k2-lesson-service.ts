@@ -1,3 +1,4 @@
+import { generateLessonStreamWithGemini } from "@/lib/gemini-lesson-service";
 import {
   generateLessonRequestSchema,
   lessonPlanSchema,
@@ -29,7 +30,7 @@ function getK2Headers(apiKey: string) {
   };
 }
 
-function buildK2Prompt(problemText: string) {
+export function buildLessonPrompt(problemText: string) {
   return `
 You are an AI math tutor teaching on a whiteboard.
 
@@ -75,7 +76,7 @@ Allowed draw action types only:
 5. axes
    - requires: id, type="axes", semanticLabel, x, y, width, height, xMin, xMax, yMin, yMax
    - optional: xLabel, yLabel, description
-   - Recommended box: x:120, y:80, width:420, height:260; adjust xMin/xMax/yMin/yMax to the function's range
+   - Recommended box: x:120, y:80, width:300, height:200; adjust xMin/xMax/yMin/yMax to the function's range
 6. plot_function
    - requires: id, type="plot_function", semanticLabel, axesLabel, expression
    - optional: xMin, xMax (defaults to axes range), samples (default 80), color (default "black"), description
@@ -98,8 +99,8 @@ Rules:
 - Only use coordinates that fit a simple whiteboard layout:
   - x between 120 and 560
   - y between 80 and 340
-  - widths between 40 and 440 (axes boxes may use up to 420)
-  - heights between 40 and 260 (axes boxes may use up to 260)
+  - widths between 40 and 440 (axes boxes may use up to 300)
+  - heights between 40 and 260 (axes boxes may use up to 200)
 - Prefer simple algebra-friendly layouts.
 - Avoid unsupported actions.
 - Ensure all ids are unique strings.
@@ -130,7 +131,7 @@ Remember EVERY semanticLabel emitted in Phase 1 — you will list them all in th
 PHASE 2 — graph (steps 5+). Wipe the board first so the graph owns the full canvas.
 Step 5 drawActions MUST appear in exactly this order:
   1. erase         targetLabels: [<every Phase-1 semanticLabel: "fn_def","goal","power_rule","term_0_deriv",…,"fprime">]
-  2. axes          semanticLabel:"main_axes", x:120, y:80, width:420, height:260,
+  2. axes          semanticLabel:"main_axes", x:120, y:80, width:300, height:200,
                    xMin:<adjusted>, xMax:<adjusted>, yMin:<adjusted>, yMax:<adjusted>
   3. plot_function axesLabel:"main_axes", expression:"<f(x)>"
 
@@ -142,7 +143,7 @@ Steps 6+: 2-3 tangent visualisations. For each slot i = 0, 1, 2:
 
 Coordinate rules for derivative lessons:
 - Phase 1 text: x in [120, 340], y in [80, 310] (the fixed slots above stay within this).
-- Phase 2 axes box: x:120 y:80 width:420 height:260.
+- Phase 2 axes box: x:120 y:80 width:300 height:200.
 - Phase 2 slope labels: x:360, y values 90, 118, 146 for slots 0, 1, 2 respectively.
 
 Problem to teach:
@@ -295,8 +296,31 @@ export async function generateLessonWithK2(input: {
   const rawContent = await callK2Chat({
     systemPrompt:
       "You generate strict whiteboard lesson JSON for a tutoring app. Output JSON only.",
-    userPrompt: buildK2Prompt(problemText),
+    userPrompt: buildLessonPrompt(problemText),
   });
 
   return lessonPlanSchema.parse(parseK2JsonOrThrow(rawContent));
+}
+
+export async function generateLessonStream(input: {
+  problemText: string;
+}): Promise<ReadableStream<Uint8Array>> {
+  const parsed = generateLessonRequestSchema.parse(input);
+
+  try {
+    return await generateLessonStreamWithGemini(parsed);
+  } catch (geminiError) {
+    console.warn(
+      "[lesson] Gemini failed, falling back to K2-Think-v2:",
+      geminiError,
+    );
+    const plan = await generateLessonWithK2(parsed);
+    const json = JSON.stringify(plan);
+    return new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode(json));
+        controller.close();
+      },
+    });
+  }
 }

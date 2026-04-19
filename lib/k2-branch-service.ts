@@ -3,6 +3,7 @@ import {
   type BranchPlan,
 } from "@/lib/tutor-core";
 import { callK2Chat, parseK2JsonOrThrow } from "@/lib/k2-lesson-service";
+import { generateBranchWithGemini } from "@/lib/gemini-branch-service";
 
 export type BranchRequestInput = {
   problem: string;
@@ -12,7 +13,7 @@ export type BranchRequestInput = {
   question: string;
 };
 
-function buildBranchPrompt(input: BranchRequestInput) {
+export function buildBranchPrompt(input: BranchRequestInput) {
   return `
 You are an AI math tutor mid-lesson. The student just interrupted and asked a question about something currently on the whiteboard. Generate a SHORT branch explanation that highlights or annotates what is already on the board.
 
@@ -76,4 +77,18 @@ export async function generateBranchWithK2(
   });
 
   return branchPlanSchema.parse(parseK2JsonOrThrow(rawContent));
+}
+
+export async function generateBranch(
+  input: BranchRequestInput,
+): Promise<BranchPlan> {
+  try {
+    return await generateBranchWithGemini(input);
+  } catch (geminiError) {
+    console.warn(
+      "[branch] Gemini failed, falling back to K2-Think-v2:",
+      geminiError,
+    );
+    return await generateBranchWithK2(input);
+  }
 }

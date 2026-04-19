@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { ZodError } from "zod";
 
-import { generateLessonWithK2 } from "@/lib/k2-lesson-service";
+import { generateLessonStream } from "@/lib/k2-lesson-service";
 import { generateLessonRequestSchema } from "@/lib/tutor-core";
 
 export async function POST(request: Request) {
@@ -9,9 +9,11 @@ export async function POST(request: Request) {
     const body = await request.json();
     const { problemText } = generateLessonRequestSchema.parse(body);
 
-    const lessonPlan = await generateLessonWithK2({ problemText });
+    const stream = await generateLessonStream({ problemText });
 
-    return NextResponse.json(lessonPlan);
+    return new Response(stream, {
+      headers: { "Content-Type": "text/plain; charset=utf-8" },
+    });
   } catch (error) {
     if (error instanceof ZodError) {
       return NextResponse.json(

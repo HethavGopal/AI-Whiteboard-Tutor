@@ -93,20 +93,45 @@ export function WhiteboardTutorShell() {
         body: JSON.stringify({ problemText: trimmedProblem }),
       });
 
-      const payload = (await response.json()) as { error?: string };
-
       if (!response.ok) {
+        const payload = (await response.json()) as { error?: string };
         throw new Error(payload.error ?? "Lesson generation failed.");
       }
 
-      const plan = lessonPlanSchema.parse(payload);
+      if (!response.body) {
+        throw new Error("No response body received.");
+      }
+
+      const streamingMsgId = `a-stream-${Date.now()}`;
+      prependMessage({
+        id: streamingMsgId,
+        role: "ai",
+        text: "Generating your lesson…",
+      });
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let accumulated = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        accumulated += decoder.decode(value, { stream: true });
+      }
+
+      const plan = lessonPlanSchema.parse(JSON.parse(accumulated));
       setLessonPlan(plan);
 
-      prependMessage({
-        id: `a-${Date.now()}`,
-        role: "ai",
-        text: `I've prepared a ${plan.steps.length}-step lesson on "${plan.title}". Follow along on the whiteboard!`,
-      });
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === streamingMsgId
+            ? {
+                ...m,
+                text: `I've prepared a ${plan.steps.length}-step lesson on "${plan.title}". Follow along on the whiteboard!`,
+              }
+            : m,
+        ),
+      );
     } catch (error) {
       const msg =
         error instanceof Error ? error.message : "Lesson generation failed.";
