@@ -839,6 +839,16 @@ function renderStepsImmediately(
   const safeEnd = Math.min(endStepIndex, lessonPlan.steps.length - 1);
   if (safeStart > safeEnd) return;
 
+  // #region agent log
+  fetch("http://127.0.0.1:7316/ingest/f39cdcba-cf18-4ba8-931d-27cdc21735e8", { method: "POST", headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "69a9ec" }, body: JSON.stringify({ sessionId: "69a9ec", runId: "line-delay-debug", hypothesisId: "H5", location: "lib/whiteboard-renderer.ts:841", message: "rebuilding previous steps immediately", data: { lessonId: lessonPlan.id, startStepIndex: safeStart, endStepIndex: safeEnd, stepIds: lessonPlan.steps.slice(safeStart, safeEnd + 1).map((step) => step.id) }, timestamp: Date.now() }) }).catch(() => {});
+  console.info("[debug69a9ec]", "rebuilding previous steps immediately", {
+    lessonId: lessonPlan.id,
+    startStepIndex: safeStart,
+    endStepIndex: safeEnd,
+    stepIds: lessonPlan.steps.slice(safeStart, safeEnd + 1).map((step) => step.id),
+  });
+  // #endregion
+
   for (const step of lessonPlan.steps.slice(safeStart, safeEnd + 1)) {
     for (const action of step.drawActions) {
       applyAction(context, action);
@@ -882,6 +892,17 @@ export async function playLessonToBoard(
   const shouldAnimate = currentStep.drawActions.length > 0;
   emitSnapshot(context, options, shouldAnimate, null);
 
+  // #region agent log
+  fetch("http://127.0.0.1:7316/ingest/f39cdcba-cf18-4ba8-931d-27cdc21735e8", { method: "POST", headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "69a9ec" }, body: JSON.stringify({ sessionId: "69a9ec", runId: "line-delay-debug", hypothesisId: "H6", location: "lib/whiteboard-renderer.ts:887", message: "animating current step", data: { lessonId: lessonPlan.id, currentStepIndex, stepId: currentStep.id, actionDelayMs, actionIds: currentStep.drawActions.map((action) => action.id) }, timestamp: Date.now() }) }).catch(() => {});
+  console.info("[debug69a9ec]", "animating current step", {
+    lessonId: lessonPlan.id,
+    currentStepIndex,
+    stepId: currentStep.id,
+    actionDelayMs,
+    actionIds: currentStep.drawActions.map((action) => action.id),
+  });
+  // #endregion
+
   for (let index = 0; index < currentStep.drawActions.length; index += 1) {
     const action = currentStep.drawActions[index];
 
@@ -890,6 +911,17 @@ export async function playLessonToBoard(
     // Future narration sync can hook in right before an action begins so
     // board events and spoken narration stay on the same timeline.
     applyAction(context, action);
+    // #region agent log
+    fetch("http://127.0.0.1:7316/ingest/f39cdcba-cf18-4ba8-931d-27cdc21735e8", { method: "POST", headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "69a9ec" }, body: JSON.stringify({ sessionId: "69a9ec", runId: "line-delay-debug", hypothesisId: "H6", location: "lib/whiteboard-renderer.ts:901", message: "applied current-step action", data: { lessonId: lessonPlan.id, currentStepIndex, stepId: currentStep.id, actionId: action.id, actionIndex: index, actionType: action.type }, timestamp: Date.now() }) }).catch(() => {});
+    console.info("[debug69a9ec]", "applied current-step action", {
+      lessonId: lessonPlan.id,
+      currentStepIndex,
+      stepId: currentStep.id,
+      actionId: action.id,
+      actionIndex: index,
+      actionType: action.type,
+    });
+    // #endregion
     zoomBoardToContent(editor);
     emitSnapshot(context, options, true, action.id);
 

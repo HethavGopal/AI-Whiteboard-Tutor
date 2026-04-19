@@ -1,3 +1,10 @@
+export {
+  limitExistsLessonPlan,
+  limitDneLessonPlan,
+  limitsOverviewLessonPlan,
+  getHardcodedLessonPlan as getTutorialLesson,
+} from "@/lib/hardcoded-lessons";
+/*
 import { lessonPlanSchema, type LessonPlan } from "@/lib/tutor-core";
 
 // Pre-built tutorial lessons for common math topics. Recognized by keyword
@@ -812,3 +819,4 @@ export function getTutorialLesson(problemText: string): LessonPlan | null {
 
   return null;
 }
+*/

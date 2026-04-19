@@ -87,6 +87,19 @@ export function WhiteboardCanvas({
       activeActionId: null,
     }));
 
+    // #region agent log
+    fetch("http://127.0.0.1:7316/ingest/f39cdcba-cf18-4ba8-931d-27cdc21735e8", { method: "POST", headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "69a9ec" }, body: JSON.stringify({ sessionId: "69a9ec", runId: "lesson-source-debug", hypothesisId: "H4", location: "components/whiteboard-canvas.tsx:89", message: "canvas starting lesson playback", data: { lessonId: lessonPlan?.id ?? null, title: lessonPlan?.title ?? null, stepCount: lessonPlan?.steps.length ?? 0, currentStepIndex, currentStepTitle: currentStep?.title ?? null, renderRevision, lessonMode }, timestamp: Date.now() }) }).catch(() => {});
+    console.info("[debug69a9ec]", "canvas starting lesson playback", {
+      lessonId: lessonPlan?.id ?? null,
+      title: lessonPlan?.title ?? null,
+      stepCount: lessonPlan?.steps.length ?? 0,
+      currentStepIndex,
+      currentStepTitle: currentStep?.title ?? null,
+      renderRevision,
+      lessonMode,
+    });
+    // #endregion
+
     void playLessonToBoard(editor, lessonPlan, currentStepIndex, {
       signal: controller.signal,
       onUpdate: (snapshot) => {

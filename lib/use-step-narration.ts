@@ -87,6 +87,17 @@ export function useStepNarration() {
 
     setNarrationState("queued");
 
+    // #region agent log
+    fetch("http://127.0.0.1:7316/ingest/f39cdcba-cf18-4ba8-931d-27cdc21735e8", { method: "POST", headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "69a9ec" }, body: JSON.stringify({ sessionId: "69a9ec", runId: "line-delay-debug", hypothesisId: "H7", location: "lib/use-step-narration.ts:90", message: "narration queued for step", data: { lessonMode, currentStepIndex, branchStepIndex, narrationLength: narrationText.length, preview: narrationText.slice(0, 80) }, timestamp: Date.now() }) }).catch(() => {});
+    console.info("[debug69a9ec]", "narration queued for step", {
+      lessonMode,
+      currentStepIndex,
+      branchStepIndex,
+      narrationLength: narrationText.length,
+      preview: narrationText.slice(0, 80),
+    });
+    // #endregion
+
     (async () => {
       try {
         const res = await fetch("/api/tts", {
@@ -122,6 +133,15 @@ export function useStepNarration() {
         try {
           await audio.play();
           setNarrationState("speaking");
+          // #region agent log
+          fetch("http://127.0.0.1:7316/ingest/f39cdcba-cf18-4ba8-931d-27cdc21735e8", { method: "POST", headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "69a9ec" }, body: JSON.stringify({ sessionId: "69a9ec", runId: "line-delay-debug", hypothesisId: "H7", location: "lib/use-step-narration.ts:126", message: "narration audio started", data: { lessonMode, currentStepIndex, branchStepIndex, narrationLength: narrationText.length }, timestamp: Date.now() }) }).catch(() => {});
+          console.info("[debug69a9ec]", "narration audio started", {
+            lessonMode,
+            currentStepIndex,
+            branchStepIndex,
+            narrationLength: narrationText.length,
+          });
+          // #endregion
         } catch (err) {
           console.warn("audio.play() blocked:", err);
           setNarrationState("idle");
