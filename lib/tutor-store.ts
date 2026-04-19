@@ -74,8 +74,8 @@ function clampStepIndex(index: number, lessonPlan: LessonPlan | null) {
 }
 
 export const useTutorStore = create<TutorState>((set, get) => ({
-  problemInput: mockLessonPlan.problem,
-  lessonPlan: mockLessonPlan,
+  problemInput: "",
+  lessonPlan: null,
   currentStepIndex: 0,
   renderRevision: 0,
   appMode: "lesson",

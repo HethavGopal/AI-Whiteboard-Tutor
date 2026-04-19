@@ -1,8 +1,18 @@
 @import "tailwindcss";
 
 :root {
-  --background: #020617;
-  --foreground: #f8fafc;
+  --background:     #fffaf5;
+  --foreground:     #2f241f;
+  --brand:          #ff914d;
+  --brand-deep:     #ff7a2f;
+  --brand-wash:     #fff1e8;
+  --brand-tint:     #fff7f1;
+  --surface:        #ffffff;
+  --surface-soft:   #fff7f1;
+  --border:         #eadfd6;
+  --text-primary:   #2f241f;
+  --text-secondary: #6f625b;
+  --text-muted:     #9b8f87;
 }
 
 @theme inline {
@@ -14,7 +24,8 @@
 
 html,
 body {
-  min-height: 100%;
+  height: 100%;
+  overflow: hidden;
 }
 
 body {
@@ -28,10 +39,11 @@ body {
 }
 
 button,
-textarea {
+textarea,
+input {
   font: inherit;
 }
 
 ::selection {
-  background: rgba(56, 189, 248, 0.35);
+  background: rgba(255, 145, 77, 0.28);
 }

@@ -9,19 +9,28 @@ import { useResumeVoiceWindow } from "@/lib/use-resume-voice-window";
 import { useStepNarration } from "@/lib/use-step-narration";
 import { useTutorStore } from "@/lib/tutor-store";
 
-function StatusPill({
-  label,
-  value,
-}: {
-  label: string;
-  value: string;
-}) {
-  return (
-    <div className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-zinc-300">
-      <span className="text-zinc-400">{label}:</span> {value}
-    </div>
-  );
-}
+const btnPrimary =
+  "rounded-xl bg-[#ff914d] px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-[#ff7a2f] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50";
+const btnGhost =
+  "rounded-xl border border-[#eadfd6] bg-white px-3 py-1.5 text-xs font-medium text-[#6f625b] transition hover:border-[#ff914d]/50 hover:bg-[#fff1e8] hover:text-[#ff7a2f] active:scale-[0.98]";
+const btnAccent =
+  "rounded-xl border border-[#ff914d]/35 bg-[#fff1e8] px-3 py-1.5 text-xs font-semibold text-[#ff7a2f] transition hover:bg-[#ffdfc9] active:scale-[0.98]";
+const btnNav =
+  "rounded-lg px-3.5 py-1.5 text-sm font-medium text-[#6f625b] transition hover:bg-[#fff1e8] hover:text-[#ff914d]";
+const cardBase =
+  "overflow-hidden rounded-2xl border border-[#eadfd6] bg-white shadow-[0_4px_24px_0_rgba(47,36,31,0.09),0_0_0_1px_rgba(255,145,77,0.05)]";
+
+type Message = {
+  id: string;
+  role: "user" | "ai";
+  text: string;
+};
+
+const SUGGESTIONS = [
+  "Solve 2x + 3 = 11",
+  "Differentiate x² + 3x",
+  "Factorise x² − 5x + 6",
+];
 
 export function WhiteboardTutorShell() {
   const {
@@ -29,16 +38,12 @@ export function WhiteboardTutorShell() {
     lessonPlan,
     currentStepIndex,
     renderRevision,
-    appMode,
-    recordingState,
-    narrationState,
     lessonMode,
     isThinking,
     branchError,
     lastTranscript,
     setProblemInput,
     setLessonPlan,
-    setAppMode,
     previousStep,
     nextStep,
     resetLessonPlayback,
@@ -47,8 +52,11 @@ export function WhiteboardTutorShell() {
     resumeMainLesson,
     cancelInterruption,
   } = useTutorStore();
+
   useStepNarration();
   useResumeVoiceWindow();
+
+  const [messages, setMessages] = useState<Message[]>([]);
   const [isGeneratingLesson, setIsGeneratingLesson] = useState(false);
   const [generationError, setGenerationError] = useState<string | null>(null);
   const [isExtracting, setIsExtracting] = useState(false);
@@ -57,6 +65,10 @@ export function WhiteboardTutorShell() {
 
   const currentStep = lessonPlan?.steps[currentStepIndex] ?? null;
   const totalSteps = lessonPlan?.steps.length ?? 0;
+
+  function prependMessage(msg: Message) {
+    setMessages((prev) => [msg, ...prev]);
+  }
 
   async function handleGenerateLesson(overrideText?: string) {
     const trimmedProblem = (overrideText ?? problemInput).trim();
@@ -68,31 +80,42 @@ export function WhiteboardTutorShell() {
     setIsGeneratingLesson(true);
     setGenerationError(null);
 
+    prependMessage({
+      id: `u-${Date.now()}`,
+      role: "user",
+      text: trimmedProblem,
+    });
+
     try {
       const response = await fetch("/api/lesson", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ problemText: trimmedProblem }),
       });
 
-      const payload = (await response.json()) as {
-        error?: string;
-      };
+      const payload = (await response.json()) as { error?: string };
 
       if (!response.ok) {
         throw new Error(payload.error ?? "Lesson generation failed.");
       }
 
-      const lessonPlan = lessonPlanSchema.parse(payload);
-      setLessonPlan(lessonPlan);
+      const plan = lessonPlanSchema.parse(payload);
+      setLessonPlan(plan);
+
+      prependMessage({
+        id: `a-${Date.now()}`,
+        role: "ai",
+        text: `I've prepared a ${plan.steps.length}-step lesson on "${plan.title}". Follow along on the whiteboard!`,
+      });
     } catch (error) {
-      setGenerationError(
-        error instanceof Error
-          ? error.message
-          : "Lesson generation failed.",
-      );
+      const msg =
+        error instanceof Error ? error.message : "Lesson generation failed.";
+      setGenerationError(msg);
+      prependMessage({
+        id: `a-${Date.now()}`,
+        role: "ai",
+        text: `Sorry, I couldn't generate a lesson: ${msg}`,
+      });
     } finally {
       setIsGeneratingLesson(false);
     }
@@ -110,14 +133,12 @@ export function WhiteboardTutorShell() {
     try {
       const form = new FormData();
       form.append("image", file);
-      const res = await fetch("/api/extract", {
-        method: "POST",
-        body: form,
-      });
+      const res = await fetch("/api/extract", { method: "POST", body: form });
       const payload = (await res.json()) as {
         problemText?: string;
         error?: string;
       };
+
       if (payload.error === "not_math") {
         setExtractError("No math detected in that image. Try another photo.");
         return;
@@ -137,311 +158,401 @@ export function WhiteboardTutorShell() {
     }
   }
 
+  function handleNew() {
+    setMessages([]);
+    setProblemInput("");
+    setGenerationError(null);
+    setExtractError(null);
+    resetLessonPlayback();
+  }
+
+  function handleTryExample() {
+    loadMockLesson();
+    setMessages([
+      {
+        id: `a-${Date.now()}`,
+        role: "ai",
+        text: 'I\'ve loaded a demo lesson: "Solve 2x + 3 = 11". Follow the steps on the whiteboard!',
+      },
+    ]);
+  }
+
+  const progressPct =
+    totalSteps > 0 ? ((currentStepIndex + 1) / totalSteps) * 100 : 0;
+  const hasMessages = messages.length > 0;
+  const hasLesson = lessonPlan !== null;
+
   return (
-    <main className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(14,165,233,0.18),_transparent_30%),linear-gradient(180deg,_#0f172a_0%,_#111827_42%,_#020617_100%)] text-white">
-      <div className="mx-auto flex min-h-screen w-full max-w-[1600px] flex-col px-4 py-4 sm:px-6 lg:px-8">
-        <header className="mb-4 rounded-[28px] border border-white/10 bg-white/5 px-6 py-5 backdrop-blur">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-            <div>
-              <p className="text-sm font-medium uppercase tracking-[0.22em] text-sky-300">
-                Hackathon MVP Foundation
-              </p>
-              <h1 className="mt-2 text-3xl font-semibold tracking-tight text-white sm:text-4xl">
-                AI Whiteboard Tutor
-              </h1>
-              <p className="mt-2 max-w-3xl text-sm text-zinc-300 sm:text-base">
-                Bootstrap layer for typed input, lesson state, a live whiteboard
-                surface, and future-ready hooks for perception, reasoning, and
-                audio.
-              </p>
+    <div
+      className="h-screen flex flex-col overflow-hidden"
+      style={{
+        backgroundColor: "#fffaf5",
+        backgroundImage:
+          "radial-gradient(circle, #e8dbd0 1px, transparent 1px)",
+        backgroundSize: "24px 24px",
+      }}
+    >
+      {/* ── Navbar ─────────────────────────────────────────────────── */}
+      <header
+        className="h-[84px] shrink-0 z-20 flex items-center justify-between px-8"
+        style={{
+          background: "linear-gradient(to bottom, #ffffff, #ffffff, #fffcf9)",
+          borderBottom: "1px solid #f0e4d8",
+          boxShadow: "0 2px 16px 0 rgba(255,145,77,0.1)",
+        }}
+      >
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src="/boardlyLogo.svg"
+          className="h-[64px] w-auto"
+          alt="Boardly"
+        />
+        <div className="flex items-center gap-3">
+          <button type="button" onClick={handleNew} className={btnNav}>
+            New
+          </button>
+          <div className="h-5 w-px bg-[#eadfd6]" />
+          <button
+            type="button"
+            onClick={resetLessonPlayback}
+            className={btnNav}
+          >
+            Reset
+          </button>
+        </div>
+      </header>
+
+      {/* ── Main content row ────────────────────────────────────────── */}
+      <div className="flex min-h-0 flex-1 gap-4 p-5">
+
+        {/* ── Board Panel ─────────────────────────────────────────── */}
+        <div className={`flex flex-1 flex-col min-w-0 ${cardBase}`}>
+
+          {/* Board Header */}
+          <div
+            className="flex shrink-0 items-center justify-between px-5 py-3"
+            style={{
+              background: "linear-gradient(to right, #fffaf5, #ffffff)",
+              borderBottom: "1px solid #eadfd6",
+            }}
+          >
+            <div className="flex items-center gap-2 min-w-0">
+              <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-[#ff914d]">
+                <span className="text-[10px] font-bold text-white">B</span>
+              </div>
+              <span className="text-[11px] font-semibold uppercase tracking-widest text-[#9b8f87]">
+                Board
+              </span>
+              {hasLesson && (
+                <>
+                  <span className="text-[#e0d4ca] select-none">/</span>
+                  <span className="max-w-[260px] truncate text-[13px] text-[#2f241f]">
+                    {lessonPlan!.title}
+                  </span>
+                </>
+              )}
             </div>
 
-            <div className="flex flex-wrap gap-2">
-              <StatusPill label="Mode" value={appMode} />
-              <StatusPill label="Lesson" value={lessonMode} />
-              <StatusPill label="Recording" value={recordingState} />
-              <StatusPill label="Narration" value={narrationState} />
-              <StatusPill
-                label="Step"
-                value={
-                  totalSteps > 0 ? `${currentStepIndex + 1} / ${totalSteps}` : "0 / 0"
-                }
-              />
+            <div className="flex shrink-0 items-center gap-2">
+              {hasLesson ? (
+                <>
+                  <div className="h-1 w-24 overflow-hidden rounded-full bg-[#eadfd6]">
+                    <div
+                      className="h-full rounded-full bg-[#ff914d] transition-all duration-300"
+                      style={{ width: `${progressPct}%` }}
+                    />
+                  </div>
+                  <span className="rounded-full bg-[#fff1e8] px-2.5 py-0.5 text-[11px] font-semibold text-[#ff7a2f]">
+                    {currentStepIndex + 1} / {totalSteps}
+                  </span>
+                </>
+              ) : (
+                <span className="text-[11px] text-[#c9bdb5]">
+                  No lesson loaded
+                </span>
+              )}
             </div>
           </div>
-        </header>
 
-        <div className="grid flex-1 gap-4 lg:grid-cols-[320px_minmax(0,1fr)_340px]">
-          <aside className="rounded-[28px] border border-white/10 bg-white/5 p-5 backdrop-blur">
-            <div className="flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-white">Problem input</h2>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={loadMockLesson}
-                  className="rounded-full border border-sky-400/40 bg-sky-400/10 px-3 py-1 text-xs font-medium text-sky-200 transition hover:border-sky-300 hover:bg-sky-400/20"
-                >
-                  Load mock lesson
-                </button>
-              </div>
-            </div>
-
-            <p className="mt-2 text-sm text-zinc-300">
-              This panel is the eventual entry point for typed questions, image
-              uploads, and model-triggering controls.
-            </p>
-
-            <label className="mt-5 block text-sm font-medium text-zinc-200">
-              Typed problem
-            </label>
-            <textarea
-              value={problemInput}
-              onChange={(event) => setProblemInput(event.target.value)}
-              placeholder="Type a math problem... e.g. 2x + 3 = 11 or d/dx of x^2 + 3x"
-              className="mt-2 min-h-40 w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white outline-none transition placeholder:text-zinc-500 focus:border-sky-400"
+          {/* Canvas */}
+          <div className="min-h-0 flex-1">
+            <WhiteboardCanvas
+              lessonPlan={lessonPlan}
+              currentStepIndex={currentStepIndex}
+              renderRevision={renderRevision}
             />
+          </div>
+        </div>
 
-            <div className="mt-4 flex flex-wrap gap-2">
+        {/* ── Chat Panel ──────────────────────────────────────────── */}
+        <div className={`flex w-[380px] shrink-0 flex-col ${cardBase}`}>
+
+          {/* Panel Header */}
+          <div
+            className="flex shrink-0 items-center justify-between px-4 py-3"
+            style={{
+              background: "linear-gradient(to right, #fff7f1, #fffcf9)",
+              borderBottom: "1px solid #eadfd6",
+            }}
+          >
+            <div className="flex items-center gap-2">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src="/boardlyLogo.svg"
+                className="h-7 opacity-90"
+                alt="Boardly"
+              />
+              <span className="text-[11px] font-semibold uppercase tracking-widest text-[#9b8f87]">
+                Tutor
+              </span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#ff914d] opacity-75" />
+                <span className="relative inline-flex h-2 w-2 rounded-full bg-[#ff914d]" />
+              </span>
+              <span className="text-[11px] text-[#9b8f87]">Ready</span>
+            </div>
+          </div>
+
+          {/* Scrollable Messages Area */}
+          <div className="flex flex-1 flex-col overflow-y-auto p-4 gap-3">
+
+            {/* Awaiting confirm card */}
+            {lessonMode === "awaiting_confirm" && (
+              <div className="shrink-0 rounded-2xl border border-[#eadfd6] bg-[#fff7f1] p-4">
+                <p className="text-sm font-semibold text-[#2f241f]">
+                  Ready to continue the lesson?
+                </p>
+                <p className="mt-1 text-xs text-[#9b8f87]">
+                  Say &ldquo;yes&rdquo; or click below. Listening for ~4
+                  seconds.
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={resumeMainLesson}
+                    className={btnPrimary}
+                  >
+                    Continue lesson
+                  </button>
+                  <button
+                    type="button"
+                    onClick={cancelInterruption}
+                    className={btnGhost}
+                  >
+                    End here
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Voice status indicators */}
+            {isThinking && (
+              <div className="shrink-0 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2">
+                <p className="text-xs text-amber-700">
+                  Generating branch explanation…
+                </p>
+              </div>
+            )}
+            {branchError && (
+              <div className="shrink-0 rounded-xl border border-red-200 bg-red-50 px-3 py-2">
+                <p className="text-xs text-red-600">{branchError}</p>
+              </div>
+            )}
+            {lastTranscript && lessonMode !== "main" && (
+              <div className="shrink-0 rounded-xl border border-[#eadfd6] bg-[#fff7f1] px-3 py-2">
+                <p className="text-[10px] text-[#9b8f87] uppercase tracking-wide mb-1">
+                  Your question
+                </p>
+                <p className="text-xs text-[#2f241f]">
+                  &ldquo;{lastTranscript}&rdquo;
+                </p>
+              </div>
+            )}
+
+            {/* Step progress card */}
+            {currentStep && (
+              <div className="shrink-0 rounded-2xl border border-[#eadfd6] bg-[#fff7f1] p-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#ff914d] text-[10px] font-bold text-white">
+                    {currentStepIndex + 1}
+                  </span>
+                  <span className="truncate text-[11px] font-semibold uppercase tracking-wider text-[#9b8f87]">
+                    {lessonPlan?.title}
+                  </span>
+                </div>
+                <p className="text-[13px] font-semibold text-[#2f241f]">
+                  Step {currentStepIndex + 1} of {totalSteps}
+                </p>
+                <p className="mt-1.5 text-[13px] leading-relaxed text-[#6f625b]">
+                  {currentStep.narration}
+                </p>
+                <div className="mt-3 h-1 w-full overflow-hidden rounded-full bg-[#eadfd6]">
+                  <div
+                    className="h-full rounded-full bg-[#ff914d] transition-all duration-300"
+                    style={{ width: `${progressPct}%` }}
+                  />
+                </div>
+                <div className="mt-3 flex flex-wrap gap-1.5">
+                  <button
+                    type="button"
+                    onClick={previousStep}
+                    className={btnGhost}
+                  >
+                    ← Prev
+                  </button>
+                  <button
+                    type="button"
+                    onClick={nextStep}
+                    className={btnAccent}
+                  >
+                    Next →
+                  </button>
+                  <button
+                    type="button"
+                    onClick={resetLessonPlayback}
+                    className={btnGhost}
+                  >
+                    Reset
+                  </button>
+                  <button
+                    type="button"
+                    onClick={replayCurrentStep}
+                    className={btnGhost}
+                  >
+                    Replay
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Message bubbles — newest first (prepend) */}
+            {hasMessages &&
+              messages.map((msg) => (
+                <div
+                  key={msg.id}
+                  className={`flex flex-col gap-1 shrink-0 ${msg.role === "user" ? "items-end" : "items-start"}`}
+                >
+                  <span className="px-1 text-[10px] font-medium text-[#9b8f87]">
+                    {msg.role === "user" ? "You" : "Boardly"}
+                  </span>
+                  <div
+                    className={`max-w-[88%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
+                      msg.role === "user"
+                        ? "bg-[#fff1e8] text-[#2f241f]"
+                        : "border border-[#eadfd6] bg-white text-[#6f625b]"
+                    }`}
+                  >
+                    {msg.text}
+                  </div>
+                </div>
+              ))}
+
+            {/* Empty state — only when no messages and no lesson */}
+            {!hasMessages && !hasLesson && (
+              <div className="flex flex-1 flex-col items-center justify-center gap-4 py-6">
+                <div
+                  className="flex h-16 w-16 items-center justify-center rounded-[20px]"
+                  style={{
+                    background: "linear-gradient(135deg, #fff1e8, #ffe4cc)",
+                    boxShadow: "0 4px 16px 0 rgba(255,145,77,0.22)",
+                  }}
+                >
+                  <span style={{ fontSize: 28 }}>✏️</span>
+                </div>
+                <div className="text-center">
+                  <p className="text-[15px] font-semibold text-[#2f241f]">
+                    What would you like to learn?
+                  </p>
+                  <p className="mt-1 max-w-[190px] mx-auto text-[13px] text-[#9b8f87]">
+                    Type any maths problem below, or snap a photo…
+                  </p>
+                </div>
+                <div className="w-full space-y-1.5">
+                  {SUGGESTIONS.map((s) => (
+                    <button
+                      key={s}
+                      type="button"
+                      onClick={() => setProblemInput(s)}
+                      className="w-full rounded-xl border border-[#eadfd6] bg-[#fff7f1] px-3 py-2 text-left text-sm text-[#2f241f] transition hover:border-[#ff914d]/50 hover:bg-[#fff1e8]"
+                    >
+                      {s}
+                    </button>
+                  ))}
+                </div>
+                <div className="flex w-full items-center gap-3">
+                  <div className="h-px flex-1 bg-[#eadfd6]" />
+                  <span className="text-[11px] text-[#9b8f87]">
+                    ask anything
+                  </span>
+                  <div className="h-px flex-1 bg-[#eadfd6]" />
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* ── Input Area ─────────────────────────────────────────── */}
+          <div className="shrink-0 space-y-2 border-t border-[#eadfd6] bg-[#fff1e8] px-4 py-3">
+            {/* Row 1: text input + mic button + Ask */}
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                value={problemInput}
+                onChange={(e) => setProblemInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !isGeneratingLesson && !isExtracting)
+                    void handleGenerateLesson();
+                }}
+                placeholder="e.g. solve 2x + 3 = 11…"
+                className="flex-1 rounded-xl border border-[#eadfd6] bg-white px-3 py-2 text-sm text-[#2f241f] outline-none placeholder:text-[#9b8f87] transition focus:border-[#ff914d] focus:ring-2 focus:ring-[#ff914d]/15"
+              />
+              <MicButton />
               <button
                 type="button"
-                onClick={() => handleGenerateLesson()}
-                disabled={isGeneratingLesson}
-                className="rounded-2xl border border-sky-300 bg-sky-300/15 px-4 py-2 text-sm font-medium text-sky-100 transition hover:bg-sky-300/25 disabled:cursor-not-allowed disabled:opacity-60"
+                onClick={() => void handleGenerateLesson()}
+                disabled={isGeneratingLesson || isExtracting}
+                className={btnPrimary}
               >
-                {isGeneratingLesson ? "Generating lesson..." : "Generate Lesson"}
+                {isGeneratingLesson ? "…" : "Ask"}
               </button>
             </div>
 
-            <div className="mt-3">
-              <label className="block text-sm font-medium text-zinc-200">
-                Or upload a photo of a problem
+            {/* Row 2: photo upload + try example + error */}
+            <div className="flex flex-wrap items-center gap-2">
+              <label
+                className={`cursor-pointer ${btnGhost} ${isExtracting || isGeneratingLesson ? "pointer-events-none opacity-50" : ""}`}
+              >
+                <input
+                  ref={photoInputRef}
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  onChange={handlePhotoUpload}
+                  disabled={isExtracting || isGeneratingLesson}
+                  className="sr-only"
+                />
+                📷 Photo
               </label>
-              <input
-                ref={photoInputRef}
-                type="file"
-                accept="image/*"
-                capture="environment"
-                onChange={handlePhotoUpload}
-                disabled={isExtracting || isGeneratingLesson}
-                className="mt-2 block w-full text-sm text-zinc-300 file:mr-3 file:rounded-full file:border-0 file:bg-sky-400/15 file:px-4 file:py-1.5 file:text-sky-100 hover:file:bg-sky-400/25 disabled:opacity-60"
-              />
-              {isExtracting ? (
-                <p className="mt-2 text-xs text-sky-200">
-                  Extracting problem from image...
-                </p>
-              ) : null}
-              {extractError ? (
-                <p className="mt-2 text-xs text-rose-200">{extractError}</p>
-              ) : null}
+              <button
+                type="button"
+                onClick={handleTryExample}
+                className={btnGhost}
+              >
+                Try example
+              </button>
+              {isExtracting && (
+                <span className="text-xs text-[#9b8f87]">Extracting…</span>
+              )}
+              {(generationError ?? extractError) && (
+                <span className="text-xs text-red-400">
+                  {generationError ?? extractError}
+                </span>
+              )}
             </div>
-
-            {generationError ? (
-              <div className="mt-4 rounded-2xl border border-rose-400/25 bg-rose-400/10 px-4 py-3 text-sm text-rose-100">
-                {generationError}
-              </div>
-            ) : null}
-
-            <div className="mt-5">
-              <p className="text-sm font-medium text-zinc-200">Session mode</p>
-              <div className="mt-2 grid grid-cols-2 gap-2">
-                {(["lesson", "follow-up"] as const).map((mode) => (
-                  <button
-                    key={mode}
-                    type="button"
-                    onClick={() => setAppMode(mode)}
-                    className={`rounded-2xl border px-3 py-2 text-sm font-medium transition ${
-                      appMode === mode
-                        ? "border-sky-300 bg-sky-300/15 text-sky-100"
-                        : "border-white/10 bg-white/5 text-zinc-300 hover:bg-white/10"
-                    }`}
-                  >
-                    {mode === "lesson" ? "Main lesson" : "Follow-up"}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="mt-5 rounded-3xl border border-emerald-400/20 bg-emerald-400/10 p-4 text-sm text-emerald-100">
-              <p className="font-semibold">Lesson generation path</p>
-              <p className="mt-1 text-emerald-50/90">
-                Typed input now drives lesson generation. Image extraction,
-                narration, and interruption handling will plug into this same
-                lesson state without replacing the current playback system.
-              </p>
-            </div>
-          </aside>
-
-          <section className="flex min-h-[60vh] flex-col rounded-[28px] border border-white/10 bg-slate-100/95 p-3 text-zinc-900 shadow-2xl shadow-sky-950/20">
-            <div className="mb-3 flex flex-wrap items-center justify-between gap-3 px-2 pt-1">
-              <div>
-                <p className="text-sm font-medium uppercase tracking-[0.18em] text-sky-700">
-                  Whiteboard
-                </p>
-                <h2 className="text-lg font-semibold text-slate-900">
-                  {lessonPlan?.title ?? "No lesson loaded"}
-                </h2>
-              </div>
-              <div className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs text-slate-600">
-                Whiteboard renderer bridge active
-              </div>
-            </div>
-
-            <div className="min-h-0 flex-1">
-              <WhiteboardCanvas
-                lessonPlan={lessonPlan}
-                currentStepIndex={currentStepIndex}
-                renderRevision={renderRevision}
-              />
-            </div>
-          </section>
-
-          <aside className="rounded-[28px] border border-white/10 bg-white/5 p-5 backdrop-blur">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <h2 className="text-lg font-semibold text-white">
-                  Lesson + transcript
-                </h2>
-                <p className="mt-2 text-sm text-zinc-300">
-                  Push and hold the mic to interrupt the tutor and ask a
-                  question about anything currently on the board.
-                </p>
-              </div>
-            </div>
-
-            <div className="mt-4 rounded-3xl border border-white/10 bg-black/20 p-4">
-              <p className="text-xs uppercase tracking-[0.22em] text-zinc-400">
-                Voice interruption
-              </p>
-              <div className="mt-3">
-                <MicButton />
-              </div>
-              {isThinking ? (
-                <p className="mt-3 text-xs text-amber-200">
-                  Generating branch explanation...
-                </p>
-              ) : null}
-              {branchError ? (
-                <p className="mt-3 text-xs text-rose-200">{branchError}</p>
-              ) : null}
-              {lastTranscript ? (
-                <p className="mt-3 text-xs text-zinc-400">
-                  Last question:{" "}
-                  <span className="text-zinc-200">&ldquo;{lastTranscript}&rdquo;</span>
-                </p>
-              ) : null}
-
-              {lessonMode === "awaiting_confirm" ? (
-                <div className="mt-4 rounded-2xl border border-emerald-300/30 bg-emerald-300/10 p-3">
-                  <p className="text-sm font-medium text-emerald-100">
-                    Ready to continue the lesson?
-                  </p>
-                  <p className="mt-1 text-xs text-emerald-50/80">
-                    Say &ldquo;yes&rdquo; or click below. Listening for ~4 seconds.
-                  </p>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      onClick={resumeMainLesson}
-                      className="rounded-2xl border border-emerald-300/60 bg-emerald-300/20 px-4 py-2 text-sm font-medium text-emerald-50 transition hover:bg-emerald-300/30"
-                    >
-                      Continue lesson
-                    </button>
-                    <button
-                      type="button"
-                      onClick={cancelInterruption}
-                      className="rounded-2xl border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-zinc-200 transition hover:bg-white/10"
-                    >
-                      End here
-                    </button>
-                  </div>
-                </div>
-              ) : null}
-            </div>
-
-            <div className="mt-5 rounded-3xl border border-white/10 bg-black/20 p-4">
-              <p className="text-xs uppercase tracking-[0.22em] text-zinc-400">
-                Current step
-              </p>
-              <p className="mt-2 text-sm font-medium text-sky-200">
-                Step {totalSteps > 0 ? currentStepIndex + 1 : 0} of {totalSteps}
-              </p>
-              <h3 className="mt-2 text-lg font-semibold text-white">
-                {currentStep?.title ?? "No step selected"}
-              </h3>
-              <p className="mt-3 text-xs uppercase tracking-[0.22em] text-zinc-500">
-                Narration
-              </p>
-              <p className="mt-2 text-sm leading-6 text-zinc-300">
-                {currentStep?.narration ?? "Load a lesson to begin."}
-              </p>
-
-              <div className="mt-4 flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={previousStep}
-                  className="rounded-2xl border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-zinc-200 transition hover:bg-white/10"
-                >
-                  Previous
-                </button>
-                <button
-                  type="button"
-                  onClick={nextStep}
-                  className="rounded-2xl border border-sky-400/40 bg-sky-400/15 px-4 py-2 text-sm font-medium text-sky-100 transition hover:bg-sky-400/25"
-                >
-                  Next
-                </button>
-                <button
-                  type="button"
-                  onClick={resetLessonPlayback}
-                  className="rounded-2xl border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-zinc-200 transition hover:bg-white/10"
-                >
-                  Reset to step 1
-                </button>
-                <button
-                  type="button"
-                  onClick={replayCurrentStep}
-                  className="rounded-2xl border border-emerald-400/40 bg-emerald-400/15 px-4 py-2 text-sm font-medium text-emerald-100 transition hover:bg-emerald-400/25"
-                >
-                  Replay render
-                </button>
-              </div>
-            </div>
-
-            <div className="mt-5 space-y-3">
-              {lessonPlan?.steps.map((step, index) => {
-                const isActive = index === currentStepIndex;
-                return (
-                  <div
-                    key={step.id}
-                    className={`rounded-3xl border p-4 transition ${
-                      isActive
-                        ? "border-sky-300/60 bg-sky-400/10"
-                        : "border-white/10 bg-white/5"
-                    }`}
-                  >
-                    <p className="text-xs uppercase tracking-[0.2em] text-zinc-400">
-                      Step {index + 1}
-                    </p>
-                    <p className="mt-1 font-medium text-white">{step.title}</p>
-                    <p className="mt-2 text-sm leading-6 text-zinc-300">
-                      {step.narration}
-                    </p>
-                  </div>
-                );
-              })}
-            </div>
-
-            <div className="mt-5 rounded-3xl border border-amber-300/20 bg-amber-300/10 p-4 text-sm text-amber-50">
-              <p className="font-semibold">Transcript placeholder</p>
-              <p className="mt-1 text-amber-50/90">
-                Future live transcription will append utterances here, flag
-                interruptions, and switch the app from main lesson mode into
-                follow-up mode when needed.
-              </p>
-            </div>
-          </aside>
+          </div>
         </div>
       </div>
-    </main>
+    </div>
   );
 }

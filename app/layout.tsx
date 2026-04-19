@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "AI Whiteboard Tutor",
+  title: "Boardly — AI Whiteboard Tutor",
   description: "Interactive AI tutoring on a whiteboard canvas",
 };
 
@@ -27,7 +27,7 @@ export default function RootLayout({
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">{children}</body>
+      <body className="h-full overflow-hidden">{children}</body>
     </html>
   );
 }

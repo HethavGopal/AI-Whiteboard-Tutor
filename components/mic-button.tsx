@@ -7,6 +7,57 @@ import { buildSnapshotFromEditor } from "@/lib/whiteboard-renderer";
 
 type LocalState = "idle" | "recording" | "transcribing" | "thinking" | "error";
 
+function MicIcon({ size = 14 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+      <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+      <line x1="12" y1="19" x2="12" y2="23" />
+      <line x1="8" y1="23" x2="16" y2="23" />
+    </svg>
+  );
+}
+
+function StopIcon({ size = 14 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="currentColor"
+    >
+      <rect x="6" y="6" width="12" height="12" rx="2" />
+    </svg>
+  );
+}
+
+function SpinnerIcon({ size = 14 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.5"
+      strokeLinecap="round"
+      className="animate-spin"
+    >
+      <circle cx="12" cy="12" r="10" strokeOpacity="0.25" />
+      <path d="M12 2a10 10 0 0 1 10 10" />
+    </svg>
+  );
+}
+
 export function MicButton() {
   const lessonMode = useTutorStore((s) => s.lessonMode);
   const lessonPlan = useTutorStore((s) => s.lessonPlan);
@@ -194,7 +245,6 @@ export function MicButton() {
     setRecordingState,
   ]);
 
-  // Cleanup on unmount.
   useEffect(() => () => cleanupStream(), [cleanupStream]);
 
   const handleResume = () => {
@@ -208,58 +258,75 @@ export function MicButton() {
     lessonMode === "paused" &&
     (localState === "idle" || localState === "error");
 
-  const buttonLabel = (() => {
-    if (localState === "recording") return "Listening...";
-    if (localState === "transcribing") return "Transcribing...";
-    if (localState === "thinking") return "Thinking...";
-    if (disabled) return "Mic disabled";
-    return "Hold to ask";
+  const title = (() => {
+    if (localState === "recording") return "Listening… release to send";
+    if (localState === "transcribing") return "Transcribing…";
+    if (localState === "thinking") return "Thinking…";
+    if (disabled) return "Mic disabled during branch";
+    return "Hold to ask a question";
   })();
 
   const buttonClass = (() => {
     const base =
-      "select-none rounded-2xl border px-4 py-2 text-sm font-medium transition";
+      "flex h-8 w-8 shrink-0 select-none items-center justify-center rounded-full border transition";
     if (disabled) {
-      return `${base} cursor-not-allowed border-white/10 bg-white/5 text-zinc-500`;
+      return `${base} cursor-not-allowed border-[#eadfd6] bg-[#f5f0eb] text-[#9b8f87]`;
     }
     if (localState === "recording") {
-      return `${base} border-rose-300 bg-rose-300/20 text-rose-100 animate-pulse`;
+      return `${base} animate-pulse border-red-300 bg-red-100 text-red-500`;
     }
     if (localState === "transcribing" || localState === "thinking") {
-      return `${base} cursor-wait border-amber-300/50 bg-amber-300/15 text-amber-100`;
+      return `${base} cursor-wait border-amber-300 bg-amber-50 text-amber-500`;
     }
-    return `${base} border-emerald-300/50 bg-emerald-300/15 text-emerald-100 hover:bg-emerald-300/25`;
+    if (localState === "error") {
+      return `${base} border-red-300 bg-red-50 text-red-400`;
+    }
+    return `${base} border-[#ff914d]/40 bg-[#fff1e8] text-[#ff7a2f] hover:bg-[#ffdfc9] active:scale-95`;
+  })();
+
+  const icon = (() => {
+    if (localState === "recording") return <StopIcon />;
+    if (localState === "transcribing" || localState === "thinking")
+      return <SpinnerIcon />;
+    return <MicIcon />;
   })();
 
   return (
-    <div className="flex flex-col gap-2">
-      <div className="flex flex-wrap items-center gap-2">
+    <div className="flex flex-col gap-1.5">
+      <button
+        type="button"
+        disabled={
+          disabled ||
+          localState === "transcribing" ||
+          localState === "thinking"
+        }
+        onPointerDown={handleStart}
+        onPointerUp={handleStop}
+        onPointerLeave={() => {
+          if (localState === "recording") void handleStop();
+        }}
+        title={title}
+        aria-label={title}
+        className={buttonClass}
+      >
+        {icon}
+      </button>
+
+      {errorText && (
+        <p className="max-w-[200px] text-[10px] leading-tight text-red-400">
+          {errorText}
+        </p>
+      )}
+
+      {showResume && (
         <button
           type="button"
-          disabled={disabled || localState === "transcribing" || localState === "thinking"}
-          onPointerDown={handleStart}
-          onPointerUp={handleStop}
-          onPointerLeave={() => {
-            if (localState === "recording") void handleStop();
-          }}
-          className={buttonClass}
+          onClick={handleResume}
+          className="rounded-lg border border-[#eadfd6] bg-white px-2 py-1 text-[10px] font-medium text-[#6f625b] transition hover:bg-[#fff1e8] hover:text-[#ff7a2f] whitespace-nowrap"
         >
-          {buttonLabel}
+          Resume lesson
         </button>
-
-        {showResume ? (
-          <button
-            type="button"
-            onClick={handleResume}
-            className="rounded-2xl border border-sky-400/40 bg-sky-400/15 px-4 py-2 text-sm font-medium text-sky-100 transition hover:bg-sky-400/25"
-          >
-            Resume lesson
-          </button>
-        ) : null}
-      </div>
-      {errorText ? (
-        <p className="text-xs text-rose-200">{errorText}</p>
-      ) : null}
+      )}
     </div>
   );
 }

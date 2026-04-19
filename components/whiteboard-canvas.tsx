@@ -198,41 +198,49 @@ export function WhiteboardCanvas({
         }}
       />
 
-      <div className="pointer-events-none absolute inset-x-4 top-4 flex flex-wrap items-center justify-between gap-3">
-        <div className="rounded-full border border-sky-200 bg-white/90 px-3 py-1 text-xs font-medium text-sky-900 shadow-sm backdrop-blur">
+      {/* Top-left status badge */}
+      <div className="pointer-events-none absolute left-4 top-4">
+        <div className="rounded-full border border-[#eadfd6] bg-white/90 px-3 py-1 text-xs font-medium text-[#6f625b] shadow-sm backdrop-blur">
           {isMounted
-            ? `Canvas ready | Step ${currentStepIndex + 1}${renderResult.isAnimating ? " | Animating..." : ""} | Mode: ${lessonMode}`
-            : "Mounting canvas..."}
+            ? `Canvas ready | Step ${currentStepIndex + 1}${renderResult.isAnimating ? " | Animating…" : ""}`
+            : "Mounting canvas…"}
         </div>
+      </div>
 
-        {currentStep ? (
-          <div className="max-w-full rounded-2xl border border-zinc-200 bg-white/90 px-3 py-2 text-xs text-zinc-700 shadow-sm backdrop-blur">
-            <p className="font-semibold text-zinc-900">{currentStep.title}</p>
-            <p className="mt-1">
+      {/* Top-right step info */}
+      {currentStep ? (
+        <div className="pointer-events-none absolute right-4 top-4 max-w-[220px]">
+          <div className="rounded-2xl border border-[#eadfd6] bg-white/90 px-3 py-2 text-xs text-[#6f625b] shadow-sm backdrop-blur">
+            <p className="font-semibold text-[#2f241f]">{currentStep.title}</p>
+            <p className="mt-1 text-[#9b8f87]">
               Labels tracked:{" "}
               {Object.keys(renderResult.labelMap).join(", ") || "none"}
             </p>
           </div>
-        ) : null}
-      </div>
+        </div>
+      ) : null}
 
-      <div className="pointer-events-none absolute bottom-4 left-4 max-w-sm rounded-2xl border border-zinc-200 bg-white/92 px-3 py-2 text-xs text-zinc-700 shadow-sm backdrop-blur">
-        <p className="font-semibold text-zinc-900">
-          Rendered actions: {renderResult.renderedActionIds.length}
-        </p>
-        <p className="mt-1">
-          Rebuild strategy: steps 1 through {Math.max(currentStepIndex + 1, 0)}
-        </p>
-        {renderResult.activeActionId ? (
-          <p className="mt-1 text-sky-700">
-            Active action: {renderResult.activeActionId}
+      {/* Bottom-left render info */}
+      <div className="pointer-events-none absolute bottom-4 left-4 max-w-sm">
+        <div className="rounded-2xl border border-[#eadfd6] bg-white/90 px-3 py-2 text-xs text-[#6f625b] shadow-sm backdrop-blur">
+          <p className="font-semibold text-[#2f241f]">
+            Rendered actions: {renderResult.renderedActionIds.length}
           </p>
-        ) : null}
-        {renderResult.warnings.length > 0 ? (
-          <p className="mt-1 text-amber-700">
-            Warnings: {renderResult.warnings.join(" | ")}
+          <p className="mt-1">
+            Rebuild strategy: steps 1 through{" "}
+            {Math.max(currentStepIndex + 1, 0)}
           </p>
-        ) : null}
+          {renderResult.activeActionId ? (
+            <p className="mt-1 text-[#ff7a2f]">
+              Active action: {renderResult.activeActionId}
+            </p>
+          ) : null}
+          {renderResult.warnings.length > 0 ? (
+            <p className="mt-1 text-amber-600">
+              Warnings: {renderResult.warnings.join(" | ")}
+            </p>
+          ) : null}
+        </div>
       </div>
     </div>
   );
